@@ -89,15 +89,14 @@ export default function HomePage() {
         <div className="container meditro-about-grid">
           {/* Left: 2x2 Asymmetric Collage */}
           <div className="about-collage-wrap">
-            <div className="collage-item collage-tl">
-              <Image
-                src={CLINIC.banner}
-                alt="Happy Morning Piles Clinic treatments: piles, fissure, fistula and pilonidal sinus"
-                width={1109}
-                height={1090}
-                unoptimized
-                style={{ objectFit: 'contain', background: '#fff' }}
-              />
+            <div className="collage-item collage-tl collage-info-card">
+              <h4>We Treat</h4>
+              <ul>
+                <li>Piles</li>
+                <li>Fissure</li>
+                <li>Fistula</li>
+                <li>Pilonidal Sinus</li>
+              </ul>
             </div>
             <div className="collage-item collage-tr">
               <Image
@@ -109,15 +108,10 @@ export default function HomePage() {
                 style={{ objectFit: 'contain', padding: '10px' }}
               />
             </div>
-            <div className="collage-item collage-bl">
-              <Image
-                src={CLINIC.poster}
-                alt="Only injection therapy, no operation, no admission"
-                width={720}
-                height={1280}
-                unoptimized
-                style={{ objectFit: 'contain', background: '#fff' }}
-              />
+            <div className="collage-item collage-bl collage-info-card collage-info-accent">
+              <h4>Injection Therapy</h4>
+              <p>Ayurvedic* injection, no operation</p>
+              <span className="collage-chip">Quick OPD visit</span>
             </div>
             <div className="collage-item collage-exp-card">
               <strong>OPD</strong>
@@ -353,9 +347,9 @@ export default function HomePage() {
             </p>
           </div>
 
-          <div className="process-cards-grid">
+          <div className="process-cards-grid symptoms-cards-grid">
             {FIVE_MAIN_SYMPTOMS.map((sym, i) => (
-              <div key={sym.en} className={`process-card${i === 1 ? ' process-card-active' : ''}`}>
+              <div key={sym.en} className="process-card">
                 <div className="process-num">{String(i + 1).padStart(2, '0')}</div>
                 <h3>{sym.en}</h3>
                 <p lang="hi">{sym.hi}</p>

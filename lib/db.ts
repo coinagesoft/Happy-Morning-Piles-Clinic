@@ -1,11 +1,14 @@
 import mysql from 'mysql2/promise';
 
+// Local MySQL by default. Override any value in .env.local (see .env.local.example).
+const DB_NAME = process.env.DB_NAME || 'happy_morning';
+
 const DB_CONFIG = {
-  host: process.env.DB_HOST || '194.59.164.112',
+  host: process.env.DB_HOST || '127.0.0.1',
   port: Number(process.env.DB_PORT || 3306),
-  user: process.env.DB_USER || 'u856729253_telehealthcoin',
-  password: process.env.DB_PASSWORD || 'Coinage@140525',
-  database: process.env.DB_NAME || 'u856729253_telehealth',
+  user: process.env.DB_USER || 'root',
+  password: process.env.DB_PASSWORD || '',
+  database: DB_NAME,
   waitForConnections: true,
   connectionLimit: 10,
   maxIdle: 10,
@@ -26,6 +29,25 @@ declare global {
   var __schemaPromise: Promise<void> | null | undefined;
 }
 
+/** Creates the local database if it does not exist yet (needs a MySQL user with CREATE rights). */
+async function ensureDatabaseExists(): Promise<void> {
+  const { database: _db, ...serverConfig } = DB_CONFIG;
+  const conn = await mysql.createConnection({
+    host: serverConfig.host,
+    port: serverConfig.port,
+    user: serverConfig.user,
+    password: serverConfig.password,
+    charset: 'utf8mb4',
+  });
+  try {
+    await conn.query(
+      `CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`
+    );
+  } finally {
+    await conn.end();
+  }
+}
+
 export function getPool(): mysql.Pool {
   if (!global.__mysqlPool) {
     global.__mysqlPool = mysql.createPool(DB_CONFIG);
@@ -44,6 +66,7 @@ export async function ensureDatabaseSchema(): Promise<void> {
 
   const pool = getPool();
   global.__schemaPromise = (async () => {
+  await ensureDatabaseExists();
 
   await pool.execute(`
     CREATE TABLE IF NOT EXISTS appointments (

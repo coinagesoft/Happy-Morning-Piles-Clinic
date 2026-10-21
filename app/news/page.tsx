@@ -1,4 +1,4 @@
-import Image from 'next/image';
+import ArticleCover from '@/components/ArticleCover';
 import Link from 'next/link';
 import type { Metadata } from 'next';
 import { NEWS_ARTICLES } from '@/lib/newsData';
@@ -59,14 +59,7 @@ export default function NewsIndexPage() {
               <article key={article.slug} className="meditro-news-card news-page-card">
                 <Link href={`/news/${article.slug}`} className="news-card-img-link" tabIndex={-1}>
                   <div className="news-card-img">
-                    <Image
-                      src={article.image}
-                      alt={article.title}
-                      width={500}
-                      height={340}
-                      unoptimized
-                      style={{ objectFit: 'contain', background: '#fff' }}
-                    />
+                    <ArticleCover category={article.category} title={article.title} />
                     <span className="news-category-badge">{article.category}</span>
                   </div>
                 </Link>
@@ -116,4 +109,3 @@ export default function NewsIndexPage() {
     </>
   );
 }
-

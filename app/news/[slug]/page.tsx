@@ -1,4 +1,5 @@
 import Image from 'next/image';
+import ArticleCover from '@/components/ArticleCover';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import type { Metadata } from 'next';
@@ -83,16 +84,7 @@ export default async function NewsDetailPage({ params }: NewsDetailPageProps) {
           <main className="article-main-col">
             {/* Featured Image */}
             <div className="article-featured-image-wrap">
-              <Image
-                src={article.image}
-                alt={article.title}
-                width={800}
-                height={460}
-                priority
-                unoptimized
-                style={{ objectFit: 'contain', background: '#fff' }}
-                className="article-featured-img"
-              />
+              <ArticleCover category={article.category} title={article.title} size="hero" />
               <div className="featured-img-caption">
                 Happy Morning Piles Clinic, Akurdi, PCMC, Pune
               </div>
@@ -213,4 +205,3 @@ export default async function NewsDetailPage({ params }: NewsDetailPageProps) {
     </>
   );
 }
-

@@ -1,9 +1,9 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import Image from 'next/image';
 import Link from 'next/link';
 import { NEWS_ARTICLES, NewsArticle } from '@/lib/newsData';
+import ArticleCover from '@/components/ArticleCover';
 
 export default function NewsCarousel() {
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -159,15 +159,7 @@ export default function NewsCarousel() {
                   tabIndex={idx >= currentIndex && idx < currentIndex + 3 ? 0 : -1}
                 >
                   <div className="news-card-img">
-                    <Image
-                      src={article.image}
-                      alt={article.title}
-                      width={500}
-                      height={320}
-                      unoptimized
-                      style={{ objectFit: 'contain', background: '#fff' }}
-                      className="news-thumb-img"
-                    />
+                    <ArticleCover category={article.category} title={article.title} />
                     <span className="news-category-badge">{article.category}</span>
                   </div>
                 </Link>

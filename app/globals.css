@@ -642,6 +642,74 @@ p {
   color: var(--primary-dark);
 }
 
+.collage-info-card {
+  background: #ffffff;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 28px 26px;
+  min-height: 220px;
+}
+
+.collage-info-card h4 {
+  font-family: var(--serif);
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--primary-dark);
+  margin: 0 0 14px;
+}
+
+.collage-info-card ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.collage-info-card li {
+  position: relative;
+  padding-left: 22px;
+  font-family: var(--serif);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--primary-dark);
+}
+
+.collage-info-card li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--secondary);
+  transform: translateY(-50%);
+}
+
+.collage-info-card p {
+  margin: 0 0 16px;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--primary-dark);
+}
+
+.collage-info-accent {
+  background: #FFF1E8;
+}
+
+.collage-chip {
+  align-self: flex-start;
+  background: var(--secondary);
+  color: #ffffff;
+  font-family: var(--serif);
+  font-size: 13px;
+  font-weight: 700;
+  padding: 6px 14px;
+  border-radius: 999px;
+}
+
 .collage-center-diamond {
   position: absolute;
   top: 50%;
@@ -736,6 +804,18 @@ p {
   grid-template-columns: repeat(3, 1fr);
   gap: 30px;
   align-items: stretch;
+}
+
+.symptoms-cards-grid {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 30px;
+}
+
+.symptoms-cards-grid .process-card {
+  flex: 0 0 calc((100% - 60px) / 3);
+  max-width: calc((100% - 60px) / 3);
 }
 
 .process-card {
@@ -6472,6 +6552,10 @@ p {
   .process-card-active {
     transform: none;
   }
+  .symptoms-cards-grid .process-card {
+    flex: 0 0 100%;
+    max-width: 100%;
+  }
   .booking-showcase-box {
     padding: 32px 20px;
   }
@@ -10737,4 +10821,99 @@ p {
   font-size: 13px;
   color: #94A3B8;
   user-select: none;
+}
+
+/* =========================================================================
+   ARTICLE COVERS (Health Guides cards and article header)
+   ========================================================================= */
+.article-cover {
+  position: relative;
+  width: 100%;
+  height: 220px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  color: #ffffff;
+  background: linear-gradient(135deg, #565acf 0%, #3b3fa8 100%);
+}
+
+.article-cover-hero {
+  height: 340px;
+  border-radius: 20px;
+  gap: 20px;
+}
+
+.cover-piles { background: linear-gradient(135deg, #f58a4b 0%, #e0601a 100%); }
+.cover-fistula { background: linear-gradient(135deg, #565acf 0%, #33378f 100%); }
+.cover-symptoms { background: linear-gradient(135deg, #1fa88a 0%, #0f6e63 100%); }
+.cover-treatment { background: linear-gradient(135deg, #f17732 0%, #565acf 100%); }
+
+.article-cover-ring {
+  position: absolute;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.22);
+  pointer-events: none;
+}
+
+.article-cover-ring-1 {
+  width: 260px;
+  height: 260px;
+  top: -90px;
+  right: -70px;
+}
+
+.article-cover-ring-2 {
+  width: 180px;
+  height: 180px;
+  bottom: -70px;
+  left: -50px;
+}
+
+.article-cover-icon {
+  position: relative;
+  z-index: 1;
+  width: 84px;
+  height: 84px;
+  padding: 18px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.18);
+  border: 2px solid rgba(255, 255, 255, 0.5);
+  box-sizing: border-box;
+}
+
+.article-cover-hero .article-cover-icon {
+  width: 112px;
+  height: 112px;
+  padding: 24px;
+}
+
+.article-cover-label {
+  position: relative;
+  z-index: 1;
+  font-family: var(--serif);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  opacity: 0.95;
+}
+
+.article-cover-hero .article-cover-label {
+  font-size: 18px;
+}
+
+.meditro-news-card:hover .article-cover-icon {
+  transform: scale(1.06);
+}
+
+.article-cover-icon {
+  transition: transform 0.3s ease;
+}
+
+@media (max-width: 900px) {
+  .article-cover-hero {
+    height: 240px;
+  }
 }
