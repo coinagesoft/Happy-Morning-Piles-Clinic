@@ -1,0 +1,273 @@
+'use client';
+
+import React, { useState } from 'react';
+import Link from 'next/link';
+import { TREATMENTS } from '@/lib/treatmentsData';
+import { CLINIC } from '@/lib/clinicInfo';
+
+export default function TreatmentsPage() {
+  const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  const filteredTreatments =
+    selectedCategory === 'all'
+      ? TREATMENTS
+      : TREATMENTS.filter((t) => t.category === selectedCategory);
+
+  const toggleExpand = (id: string) => {
+    setExpandedId((prev) => (prev === id ? null : id));
+  };
+
+  return (
+    <>
+      {/* 1. PAGE HERO BANNER */}
+      <section className="meditro-page-banner">
+        <span className="deco-shape deco-hero-circle" aria-hidden="true"></span>
+        <span className="deco-shape deco-hero-plus" aria-hidden="true">+</span>
+
+        <div className="container meditro-banner-inner">
+          <span className="meditro-badge-orange">{CLINIC.tagline}</span>
+          <h1>Piles, Fissure &amp; Fistula Treatments</h1>
+          <p className="banner-subtext">
+            Ayurvedic* injection therapy by {CLINIC.doctor.name}. No surgery, no admission, only OPD basis treatment.
+          </p>
+
+          <div className="meditro-breadcrumb">
+            <Link href="/">
+              <span>Home</span>
+            </Link>
+            <span className="breadcrumb-sep">/</span>
+            <span className="breadcrumb-current">Treatments</span>
+          </div>
+        </div>
+
+        <div className="hero-wave-bottom" aria-hidden="true">
+          <svg viewBox="0 0 1440 100" fill="none" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none">
+            <path d="M0 40C240 100 480 0 720 50C960 100 1200 15 1440 60V100H0V40Z" fill="#FFFFFF" />
+          </svg>
+        </div>
+      </section>
+
+      {/* 2. KEY POINTS BAR */}
+      <section className="treatments-stats-bar">
+        <div className="container">
+          <div className="treatment-stats-grid">
+            <div className="stat-card">
+              <span className="stat-num">OPD</span>
+              <strong>Only OPD Basis</strong>
+              <small>No admission, no stay in hospital</small>
+            </div>
+            <div className="stat-card">
+              <span className="stat-num">0</span>
+              <strong>Cuts, Surgery or Laser</strong>
+              <small>No operation and no ksharsutra</small>
+            </div>
+            <div className="stat-card">
+              <span className="stat-num">20 Min</span>
+              <strong>Procedure</strong>
+              <small>No bed rest, no leave from routine work</small>
+            </div>
+            <div className="stat-card">
+              <span className="stat-num">100%</span>
+              <strong>Ayurvedic*</strong>
+              <small>Scarless treatment</small>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* 3. FILTER + TREATMENT CARDS */}
+      <section className="meditro-section treatments-main-section" id="all-treatments">
+        <div className="container">
+          <div className="meditro-section-header">
+            <span className="meditro-badge-orange">Our Treatments</span>
+            <h2>Explore What We Treat</h2>
+            <p className="section-lead-p">
+              Select a condition to read what it is, the common symptoms and how the clinic treats it.
+            </p>
+          </div>
+
+          <div className="treatment-filter-pills" role="tablist" aria-label="Treatment categories">
+            <button
+              type="button"
+              className={`filter-pill ${selectedCategory === 'all' ? 'active' : ''}`}
+              onClick={() => setSelectedCategory('all')}
+            >
+              All Treatments ({TREATMENTS.length})
+            </button>
+            <button
+              type="button"
+              className={`filter-pill ${selectedCategory === 'anorectal' ? 'active' : ''}`}
+              onClick={() => setSelectedCategory('anorectal')}
+            >
+              Piles, Fissure &amp; Fistula
+            </button>
+            <button
+              type="button"
+              className={`filter-pill ${selectedCategory === 'abdominal' ? 'active' : ''}`}
+              onClick={() => setSelectedCategory('abdominal')}
+            >
+              Stomach Ailments
+            </button>
+          </div>
+
+          <div className="treatment-cards-list">
+            {filteredTreatments.map((treatment) => {
+              const isExpanded = expandedId === treatment.id;
+
+              return (
+                <article key={treatment.id} id={treatment.id} className="treatment-detail-card">
+                  <div className="treatment-card-header">
+                    <div className="treatment-title-block">
+                      <span className="treatment-badge-tag">{treatment.badge}</span>
+                      <h3>
+                        {treatment.name} <span lang="hi">({treatment.localName})</span>
+                      </h3>
+                      <p className="treatment-short-desc">{treatment.shortDesc}</p>
+                    </div>
+
+                    <div className="treatment-header-cta">
+                      <Link href="/appointment" className="btn-meditro-orange btn-book-treatment">
+                        Book Appointment
+                      </Link>
+                    </div>
+                  </div>
+
+                  <div className="treatment-clinical-grid">
+                    <div className="clinical-col constitutional-col">
+                      <h4>What is it?</h4>
+                      <p>{treatment.about}</p>
+                    </div>
+
+                    <div className="clinical-col suppression-col">
+                      <h4>Common symptoms</h4>
+                      <ul>
+                        {treatment.symptoms.map((s) => (
+                          <li key={s}>{s}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+
+                  {isExpanded && (
+                    <div className="treatment-expanded-drawer">
+                      <div className="expanded-grid">
+                        <div className="expanded-highlights">
+                          <h5>Treatment highlights:</h5>
+                          <ul>
+                            {treatment.highlights.map((h) => (
+                              <li key={h}>
+                                <span className="check-icon">&#x2713;</span>
+                                {h}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="treatment-card-footer">
+                    <button
+                      type="button"
+                      className="btn-toggle-treatment"
+                      onClick={() => toggleExpand(treatment.id)}
+                      aria-expanded={isExpanded}
+                    >
+                      <span>{isExpanded ? 'Hide Treatment Details' : 'View Treatment Highlights'}</span>
+                      <span className={`toggle-chevron ${isExpanded ? 'rotated' : ''}`}>&#x25BC;</span>
+                    </button>
+
+                    <div className="footer-links-group">
+                      <Link href="/appointment" className="btn-treatment-direct-book">
+                        Book for {treatment.name.split('(')[0].trim()} &rarr;
+                      </Link>
+                    </div>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+
+          <p className="section-lead-p" style={{ textAlign: 'center', marginTop: '28px' }}>
+            {CLINIC.advisory}
+          </p>
+        </div>
+      </section>
+
+      {/* 4. FAQ (answers only use facts from the clinic's own material) */}
+      <section className="meditro-section treatments-faq-section">
+        <div className="container">
+          <div className="meditro-section-header">
+            <span className="meditro-badge-orange">Patient Questions</span>
+            <h2>Frequently Asked Questions</h2>
+          </div>
+
+          <div className="faq-cards-grid">
+            <div className="faq-card">
+              <h4>Do I need to be admitted to hospital?</h4>
+              <p>
+                No. Treatment is only on an OPD basis. There is no admission and no stay in hospital.
+              </p>
+            </div>
+
+            <div className="faq-card">
+              <h4>Is there any cut or surgery?</h4>
+              <p>
+                No cuts. Piles, fissure and fistula are treated with Ayurvedic* injection therapy, without surgery. Fistula is treated without surgery, laser or ksharsutra.
+              </p>
+            </div>
+
+            <div className="faq-card">
+              <h4>How long does the procedure take?</h4>
+              <p>
+                The procedure takes about 20 minutes.
+              </p>
+            </div>
+
+            <div className="faq-card">
+              <h4>Do I need bed rest or leave from work?</h4>
+              <p>
+                No bed rest and no leave from routine work are needed, and there are no hard dietary restrictions.
+              </p>
+            </div>
+
+            <div className="faq-card">
+              <h4>Where is the clinic?</h4>
+              <p>
+                {CLINIC.address.full}. Call {CLINIC.phone.display} for directions.
+              </p>
+            </div>
+
+            <div className="faq-card">
+              <h4>Is rectal bleeding always piles?</h4>
+              <p>
+                Not necessarily. Bleeding can have other causes, so please get examined by {CLINIC.doctor.name} or another doctor to confirm the cause before starting treatment.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* 5. BOTTOM CTA */}
+      <section className="treatments-bottom-cta">
+        <div className="container">
+          <div className="treatments-cta-box">
+            <h2>Suffering From Piles, Fissure or Fistula?</h2>
+            <p>
+              Consult {CLINIC.doctor.name}, {CLINIC.doctor.title}, at {CLINIC.name}, {CLINIC.address.area}.
+            </p>
+            <div className="cta-actions">
+              <Link href="/appointment" className="btn-meditro-orange">
+                Book Appointment
+              </Link>
+              <a href={`tel:${CLINIC.phone.tel}`} className="btn-meditro-outline-white">
+                Call Clinic: {CLINIC.phone.display}
+              </a>
+            </div>
+          </div>
+        </div>
+      </section>
+    </>
+  );
+}
