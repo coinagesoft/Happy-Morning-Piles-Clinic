@@ -16,6 +16,7 @@ import {
   rescheduleCalendarMeeting,
   DOCTOR_EMAIL,
 } from '@/lib/google';
+import { triggerConfirmationCall } from '@/lib/voiceCall';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -415,6 +416,9 @@ export async function POST(request: NextRequest) {
     }
 
     await saveAppointment(newAppointment);
+
+    // AI confirmation call - fire and forget, must never block or fail the booking
+    void triggerConfirmationCall(newAppointment, { source: 'admin-booking' });
 
     return NextResponse.json(
       {
