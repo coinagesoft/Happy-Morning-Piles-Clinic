@@ -34,7 +34,7 @@ export const CLINIC = {
     area: 'Akurdi, PCMC, Pune',
   },
 
-  logo: '/assets/happy-morning-logo.png',
+  logo: '/assets/happy-morning-logo-transparent.png',
   poster: '/assets/happy-morning-poster.jpg',
   banner: '/assets/happy-morning-banner.jpg',
 

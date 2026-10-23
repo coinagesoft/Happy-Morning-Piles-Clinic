@@ -205,17 +205,21 @@
     transform: none;
   }
 }
-
-
-/* Note under the symptom cards (T&C style) */
+/* Note under the symptom cards: pinned to the right-most edge of the page */
+/* Note under the symptom cards: right-most edge of the page */
 .symptoms-note-wrap {
-  max-width: 1200px;      /* same width as the cards, so right-aligned text lines up with them */
-  margin: 24px auto 0;
-  padding: 0 16px;
+  display: block;
+  width: 100%;
+  margin: 24px 0 0;
+  padding: 0 24px;            /* right gap from the page edge; set the right value to 0 to touch it */
   box-sizing: border-box;
+  text-align: center;
 }
 
 .symptoms-note {
+  display: block;
+  width: 100%;
+  max-width: none;
   margin: 0;
   font-size: 14px;
   line-height: 1.6;
@@ -228,14 +232,12 @@
   font-weight: 700;
 }
 
-.symptoms-note--right {
-  text-align: right;
-}
-
 @media (max-width: 640px) {
-  .symptoms-note,
-  .symptoms-note--right {
+  .symptoms-note-wrap {
+    padding: 0 16px;
+  }
+  .symptoms-note {
     font-size: 13px;
-    text-align: center;   /* right-aligned small text looks odd on phones */
+    text-align: right;
   }
 }

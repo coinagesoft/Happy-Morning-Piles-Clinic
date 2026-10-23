@@ -351,12 +351,13 @@ export default function HomePage() {
           {/* Animated symptom cards (components/SymptomCards.tsx) */}
           <SymptomCards />
 
-         <div className="symptoms-note-wrap">
- <p className="symptoms-note symptoms-note--right">
-    <strong>Note:</strong> Rectal bleeding can have more than one cause, so please get examined before assuming it is piles.
-  </p>
-</div>
+      
         </div>
+          <div className="symptoms-note-wrap">
+            <p className="symptoms-note symptoms-note--right">
+              <strong>Note:</strong> Rectal bleeding can have more than one cause, so please get examined before assuming it is piles.
+            </p>
+          </div>
       </section>
 
       {/* =========================================================
