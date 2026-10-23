@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96">
+<style>
+.b{transform-origin:48px 62px;animation:pulse 1.8s ease-in-out infinite}
+.r{animation:fade 1.8s ease-in-out infinite}
+.r2{animation:fade 1.8s ease-in-out .3s infinite}
+@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.12)}}
+@keyframes fade{0%,100%{opacity:.15}50%{opacity:1}}
+</style>
+<circle cx="48" cy="48" r="40" fill="#FFE3D1"/>
+<path d="M12 66H36A12 12 0 0 1 60 66H84V84H12Z" fill="#F7B48A"/>
+<g class="b"><path d="M32 66a16 16 0 0 1 32 0Z" fill="#F26B1D"/></g>
+<path class="r" d="M30 40a26 26 0 0 1 36 0" stroke="#F26B1D" stroke-width="4" stroke-linecap="round" fill="none"/>
+<path class="r2" d="M38 30a14 14 0 0 1 20 0" stroke="#F26B1D" stroke-width="4" stroke-linecap="round" fill="none"/>
+</svg>

@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96">
+<style>
+.t{transform-origin:48px 60px;animation:strain 1.2s ease-in-out infinite}
+.a{animation:push 1.2s ease-in-out infinite}
+.sw{animation:sweat 1.2s ease-in infinite}
+@keyframes strain{0%,100%{transform:translateX(0)}25%{transform:translateX(-1.5px)}75%{transform:translateX(1.5px)}}
+@keyframes push{0%,100%{transform:translateY(-3px);opacity:.5}50%{transform:translateY(4px);opacity:1}}
+@keyframes sweat{0%{transform:translateY(-4px);opacity:0}40%{opacity:1}100%{transform:translateY(8px);opacity:0}}
+</style>
+<circle cx="48" cy="48" r="40" fill="#FFE3D1"/>
+<g class="t">
+<rect x="30" y="16" width="30" height="16" rx="4" fill="#1B1464"/>
+<path d="M26 36H70c0 14-6 24-14 28v8H40v-8C32 60 26 50 26 36Z" fill="#fff" stroke="#1B1464" stroke-width="4" stroke-linejoin="round"/>
+<rect x="36" y="72" width="24" height="6" rx="2" fill="#1B1464"/></g>
+<path class="a" d="M48 40v14m-7-6l7 8 7-8" stroke="#F26B1D" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+<path class="sw" d="M76 26c-4 6-5 9-5 11a5 5 0 0 0 10 0c0-2-1-5-5-11Z" fill="#4DA3FF"/>
+</svg>

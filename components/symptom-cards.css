@@ -1,0 +1,241 @@
+/* Symptom cards (components/SymptomCards.tsx)
+   Flex layout: 3 per row on desktop, and the last row (2 cards) is centered. */
+
+/* Container */
+.symptoms-cards-grid {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center; /* centers the last row */
+  gap: 24px;
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 16px;
+  box-sizing: border-box;
+}
+
+/* Symptom Card Base */
+.symptoms-cards-grid .sc-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: stretch;
+  flex: 0 0 calc((100% - 48px) / 3); /* 3 per row */
+  max-width: calc((100% - 48px) / 3);
+  padding: 32px 28px;
+  border-radius: 24px;
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.05);
+  box-shadow: 0 10px 30px -10px rgba(31, 34, 120, 0.06);
+  transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1),
+              box-shadow 0.35s cubic-bezier(0.16, 1, 0.3, 1),
+              border-color 0.35s ease;
+  overflow: hidden;
+}
+
+/* Hover Effects */
+.symptoms-cards-grid .sc-card:hover {
+  transform: translateY(-8px);
+  box-shadow: 0 20px 40px -12px rgba(31, 34, 120, 0.12);
+  border-color: rgba(31, 34, 120, 0.15);
+}
+
+/* Top Bar: Icon + Number */
+.sc-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  margin-bottom: 28px;
+}
+
+/* Icon Container Tile */
+.sc-icon {
+  width: 68px;
+  height: 68px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 18px;
+  background: var(--secondary-light, #fff2ea);
+  transition: transform 0.3s ease;
+}
+
+.symptoms-cards-grid .sc-card:hover .sc-icon {
+  transform: scale(1.05);
+}
+
+.sc-icon img {
+  width: 42px;
+  height: 42px;
+  object-fit: contain;
+}
+
+/* Number Indicator */
+.symptoms-cards-grid .sc-card .sc-num {
+  margin: 0;
+  font-size: 40px;
+  font-weight: 800;
+  line-height: 1;
+  color: transparent;
+  -webkit-text-stroke: 1.5px var(--secondary, #f17732);
+  text-shadow: none;
+  opacity: 0.4;
+  font-family: inherit;
+  transition: opacity 0.3s ease;
+}
+
+.symptoms-cards-grid .sc-card:hover .sc-num {
+  opacity: 0.85;
+}
+
+/* Card Content Area */
+.sc-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.symptoms-cards-grid .sc-card h3 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--secondary, #f17732);
+  letter-spacing: -0.01em;
+}
+
+.symptoms-cards-grid .sc-card p {
+  margin: 0;
+  flex: none;
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--muted, #64748b);
+  font-weight: 500;
+}
+
+/* Scroll Reveal Animation
+   "backwards" (not "forwards") so the card is hidden during the delay but the
+   hover lift still works after the animation ends. */
+.sc-card.sc-pending {
+  opacity: 0;
+  transform: translateY(32px);
+}
+
+.sc-card.sc-in {
+  animation: scRise 0.6s cubic-bezier(0.16, 1, 0.3, 1) var(--sc-delay, 0ms) backwards;
+}
+
+@keyframes scRise {
+  from {
+    opacity: 0;
+    transform: translateY(32px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Tablet: 2 per row, last card centered */
+@media (max-width: 960px) {
+  .symptoms-cards-grid .sc-card {
+    flex: 0 0 calc((100% - 24px) / 2);
+    max-width: calc((100% - 24px) / 2);
+  }
+}
+
+/* Mobile: 1 per row */
+@media (max-width: 640px) {
+  .symptoms-cards-grid {
+    gap: 16px;
+    padding: 12px;
+  }
+
+  .symptoms-cards-grid .sc-card {
+    flex: 0 0 100%;
+    max-width: 100%;
+    padding: 24px 20px;
+    border-radius: 20px;
+  }
+
+  .sc-top {
+    margin-bottom: 20px;
+  }
+
+  .sc-icon {
+    width: 58px;
+    height: 58px;
+    border-radius: 14px;
+  }
+
+  .sc-icon img {
+    width: 36px;
+    height: 36px;
+  }
+
+  .symptoms-cards-grid .sc-card .sc-num {
+    font-size: 32px;
+  }
+
+  .symptoms-cards-grid .sc-card h3 {
+    font-size: 18px;
+  }
+
+  .symptoms-cards-grid .sc-card p {
+    font-size: 15px;
+  }
+}
+
+/* Accessibility: Motion Preferences */
+@media (prefers-reduced-motion: reduce) {
+  .sc-card.sc-pending {
+    opacity: 1;
+    transform: none;
+  }
+  .sc-card.sc-in {
+    animation: none;
+  }
+  .symptoms-cards-grid .sc-card {
+    transition: none;
+  }
+  .symptoms-cards-grid .sc-card:hover .sc-icon {
+    transform: none;
+  }
+}
+
+
+/* Note under the symptom cards (T&C style) */
+.symptoms-note-wrap {
+  max-width: 1200px;      /* same width as the cards, so right-aligned text lines up with them */
+  margin: 24px auto 0;
+  padding: 0 16px;
+  box-sizing: border-box;
+}
+
+.symptoms-note {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--muted, #65698a);
+  text-align: center;
+}
+
+.symptoms-note strong {
+  color: var(--secondary, #f17732);
+  font-weight: 700;
+}
+
+.symptoms-note--right {
+  text-align: right;
+}
+
+@media (max-width: 640px) {
+  .symptoms-note,
+  .symptoms-note--right {
+    font-size: 13px;
+    text-align: center;   /* right-aligned small text looks odd on phones */
+  }
+}

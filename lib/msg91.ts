@@ -1,28 +1,36 @@
 /**
  * MSG91 WhatsApp sender (official WhatsApp Business API via MSG91).
  *
- * Reminders are business-initiated messages, so WhatsApp only allows them as
- * pre-approved TEMPLATES. Create the template in MSG91 (see REMINDERS_SETUP.md),
- * then fill in the env vars below.
+ * Business-initiated messages must use pre-approved TEMPLATES.
  *
  * Env:
- *   MSG91_AUTH_KEY            your MSG91 authkey
- *   MSG91_WHATSAPP_NUMBER     the WhatsApp number connected to MSG91, with country code (e.g. 917066747811)
- *   MSG91_WHATSAPP_TEMPLATE   approved template name
- *   MSG91_WHATSAPP_NAMESPACE  template namespace (shown in the MSG91 template details)
- *   MSG91_WHATSAPP_LANGUAGE   template language code, default "en"
+ *   MSG91_AUTH_KEY                        your MSG91 authkey
+ *   MSG91_WHATSAPP_NUMBER                 connected WhatsApp number with country code (e.g. 919175140525)
+ *   MSG91_WHATSAPP_NAMESPACE              template namespace (shown in the template JSON)
+ *   MSG91_WHATSAPP_LANGUAGE               template language code, default "en"
+ *   MSG91_WHATSAPP_TEMPLATE               reminder template name         (e.g. "reminder")
+ *   MSG91_WHATSAPP_TEMPLATE_CONFIRMATION  booking-confirmation template   (e.g. "reminder1")
  */
 
 const ENDPOINT =
   'https://api.msg91.com/api/v5/whatsapp/whatsapp-outbound-message/bulk/';
 
-export function isMsg91Configured(): boolean {
+function baseConfigured(): boolean {
   return Boolean(
     process.env.MSG91_AUTH_KEY &&
       process.env.MSG91_WHATSAPP_NUMBER &&
-      process.env.MSG91_WHATSAPP_TEMPLATE &&
       process.env.MSG91_WHATSAPP_NAMESPACE
   );
+}
+
+/** Reminder template is configured (used by the reminder cron job). */
+export function isMsg91Configured(): boolean {
+  return baseConfigured() && Boolean(process.env.MSG91_WHATSAPP_TEMPLATE);
+}
+
+/** Booking-confirmation template is configured (used right after payment). */
+export function isMsg91ConfirmationConfigured(): boolean {
+  return baseConfigured() && Boolean(process.env.MSG91_WHATSAPP_TEMPLATE_CONFIRMATION);
 }
 
 /** 10-digit Indian mobile (or already prefixed) -> 91XXXXXXXXXX */
@@ -41,10 +49,14 @@ export async function sendMsg91WhatsApp(opts: {
   phone: string;
   /** Values for {{1}}, {{2}}, ... of the template body, in order. */
   bodyValues: string[];
+  /** Template name. Defaults to MSG91_WHATSAPP_TEMPLATE (the reminder template). */
+  template?: string;
 }): Promise<void> {
-  if (!isMsg91Configured()) {
+  const templateName = opts.template || process.env.MSG91_WHATSAPP_TEMPLATE;
+
+  if (!baseConfigured() || !templateName) {
     throw new Error(
-      'MSG91 WhatsApp is not configured. Set MSG91_AUTH_KEY, MSG91_WHATSAPP_NUMBER, MSG91_WHATSAPP_TEMPLATE and MSG91_WHATSAPP_NAMESPACE.'
+      'MSG91 WhatsApp is not configured. Set MSG91_AUTH_KEY, MSG91_WHATSAPP_NUMBER, MSG91_WHATSAPP_NAMESPACE and a template name.'
     );
   }
 
@@ -65,7 +77,7 @@ export async function sendMsg91WhatsApp(opts: {
       messaging_product: 'whatsapp',
       type: 'template',
       template: {
-        name: process.env.MSG91_WHATSAPP_TEMPLATE,
+        name: templateName,
         language: {
           code: process.env.MSG91_WHATSAPP_LANGUAGE || 'en',
           policy: 'deterministic',

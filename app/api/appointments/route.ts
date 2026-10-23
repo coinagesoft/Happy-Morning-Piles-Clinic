@@ -18,6 +18,10 @@ import {
 import { getBulkCalendarAvailability } from '@/lib/cache';
 import { getClinicSettings, isTimeSlotTaken } from '@/lib/clinicSettings';
 import { generateSlots, getSlotStep, expandBookedTimes } from '@/lib/slots';
+import { formatSlotLabel } from '@/lib/slots';
+import { CLINIC } from '@/lib/clinicInfo';
+import { isMsg91ConfirmationConfigured, sendMsg91WhatsApp } from '@/lib/msg91';
+import { formatDateLong, modeLabel } from '@/lib/reminderEmails';
 
 export const dynamic = 'force-dynamic';
 
@@ -280,6 +284,32 @@ export async function POST(request: NextRequest) {
     }
 
     await saveAppointment(newAppointment);
+
+    // WhatsApp booking confirmation (MSG91 template "reminder1").
+    // Template body: Hello {{1}}, Thank you for booking with {{2}}.
+    //                Your appointment for {{3}} on {{4}} at {{5}} is confirmed.
+    // Awaited so Vercel doesn't stop the function early; a failure never blocks the booking.
+    if (isMsg91ConfirmationConfigured()) {
+      try {
+        const a = {
+          ...newAppointment,
+          consultationType: newAppointment.consultationType ?? ('online' as const),
+        };
+        await sendMsg91WhatsApp({
+          template: process.env.MSG91_WHATSAPP_TEMPLATE_CONFIRMATION,
+          phone: a.phone,
+          bodyValues: [
+            a.fullName, // {{1}}
+            CLINIC.name, // {{2}}
+            modeLabel(a), // {{3}}
+            formatDateLong(a.date), // {{4}}
+            formatSlotLabel(a.time), // {{5}}
+          ],
+        });
+      } catch (waErr) {
+        console.error('WhatsApp confirmation failed:', waErr);
+      }
+    }
 
     const googleCalendarUrl = generateGoogleCalendarUrl(newAppointment);
     const eventCreated = Boolean(googleEventId);

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96">
+<style>
+.f{transform-origin:48px 84px;animation:flick 1s ease-in-out infinite}
+.i{transform-origin:48px 84px;animation:flick 1s ease-in-out .2s infinite}
+@keyframes flick{0%,100%{transform:scale(1,1) rotate(-2deg)}50%{transform:scale(.94,1.08) rotate(2deg)}}
+</style>
+<circle cx="48" cy="48" r="40" fill="#FFE3D1"/>
+<g class="f"><path d="M48 10C52 26 70 34 70 58a22 22 0 0 1-44 0c0-10 5-17 10-22 1 7 4 10 8 11C42 32 44 20 48 10Z" fill="#F26B1D"/></g>
+<g class="i"><path d="M48 44C50 54 60 57 60 67a12 12 0 0 1-24 0c0-6 4-10 7-12 0 4 2 6 4 6 0-6 0-11 1-17Z" fill="#FFC857"/></g>
+</svg>

@@ -2,7 +2,8 @@ import Image from 'next/image';
 import Link from 'next/link';
 import type { Metadata } from 'next';
 import NewsCarousel from '@/components/NewsCarousel';
-import { CLINIC, FIVE_MAIN_SYMPTOMS } from '@/lib/clinicInfo';
+import SymptomCards from '@/components/SymptomCards';
+import { CLINIC } from '@/lib/clinicInfo';
 
 export const metadata: Metadata = {
   title: 'Happy Morning Piles Clinic | Piles, Fissure & Fistula Treatment in Akurdi, PCMC, Pune',
@@ -33,9 +34,9 @@ export default function HomePage() {
             <p className="meditro-hero-lead">
               {CLINIC.doctor.name}, {CLINIC.doctor.title}. 100% Ayurvedic* injection therapy on an OPD basis: no cuts, no admission, no hospital stay.
             </p>
-            <p className="meditro-hero-lead" lang="mr" style={{ fontWeight: 700 }}>
+            {/* <p className="meditro-hero-lead" lang="mr" style={{ fontWeight: 700 }}>
               {CLINIC.doctor.titleMr} &bull; {CLINIC.taglineMr}
-            </p>
+            </p> */}
             <div className="meditro-hero-actions">
               <Link href="/appointment" className="btn-meditro-orange">
                 Book Appointment
@@ -342,24 +343,19 @@ export default function HomePage() {
           <div className="meditro-section-header">
             <span className="meditro-badge-orange">Symptoms</span>
             <h2>Troubled by Piles, Fissure or Fistula?</h2>
-            <p className="section-lead-p" lang="mr">
+            {/* <p className="section-lead-p" lang="mr">
               मूळव्याध आणि फिशर चा त्रास आहे का? &bull; बवासीर, फिशर और भगंदर से परेशान हैं?
-            </p>
+            </p> */}
           </div>
 
-          <div className="process-cards-grid symptoms-cards-grid">
-            {FIVE_MAIN_SYMPTOMS.map((sym, i) => (
-              <div key={sym.en} className="process-card">
-                <div className="process-num">{String(i + 1).padStart(2, '0')}</div>
-                <h3>{sym.en}</h3>
-                <p lang="hi">{sym.hi}</p>
-              </div>
-            ))}
-          </div>
+          {/* Animated symptom cards (components/SymptomCards.tsx) */}
+          <SymptomCards />
 
-          <p className="section-lead-p" style={{ textAlign: 'center', marginTop: '28px' }}>
-            Rectal bleeding can have more than one cause, so please get examined before assuming it is piles.
-          </p>
+         <div className="symptoms-note-wrap">
+ <p className="symptoms-note symptoms-note--right">
+    <strong>Note:</strong> Rectal bleeding can have more than one cause, so please get examined before assuming it is piles.
+  </p>
+</div>
         </div>
       </section>
 
