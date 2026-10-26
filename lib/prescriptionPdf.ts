@@ -2,6 +2,7 @@ import { PDFDocument, StandardFonts, rgb, PDFFont, PDFPage } from 'pdf-lib';
 import {
   Prescription,
   CLINIC_INFO,
+  Letterhead,
   describeTiming,
   formatRxDate,
 } from './prescriptionTemplate';
@@ -71,7 +72,7 @@ function wrap(text: string, font: PDFFont, size: number, maxWidth: number): stri
   return lines;
 }
 
-export async function generatePrescriptionPdf(rx: Prescription): Promise<Uint8Array> {
+export async function generatePrescriptionPdf(rx: Prescription, lh: Letterhead = CLINIC_INFO): Promise<Uint8Array> {
   const pdf = await PDFDocument.create();
 
   const regular = await pdf.embedFont(StandardFonts.Helvetica);
@@ -81,7 +82,7 @@ export async function generatePrescriptionPdf(rx: Prescription): Promise<Uint8Ar
   const serifBoldItalic = await pdf.embedFont(StandardFonts.TimesRomanBoldItalic);
 
   pdf.setTitle(`Prescription - ${clean(rx.patientName, regular)}`);
-  pdf.setAuthor(CLINIC_INFO.doctorName);
+  pdf.setAuthor(lh.doctorName);
 
   let page: PDFPage = pdf.addPage([PAGE_W, PAGE_H]);
   let y = PAGE_H - MARGIN;
@@ -138,7 +139,7 @@ export async function generatePrescriptionPdf(rx: Prescription): Promise<Uint8Ar
   /** Running header for pages 2+. */
   const newPage = () => {
     page = pdf.addPage([PAGE_W, PAGE_H]);
-    text(CLINIC_INFO.doctorName, MARGIN, PAGE_H - MARGIN - 6, { font: serifBold, size: 14, color: NAVY });
+    text(lh.doctorName, MARGIN, PAGE_H - MARGIN - 6, { font: serifBold, size: 14, color: NAVY });
     textRight(
       `Prescription for ${rx.patientName}   |   ${formatRxDate(rx.date)}`,
       RIGHT,
@@ -162,11 +163,14 @@ export async function generatePrescriptionPdf(rx: Prescription): Promise<Uint8Ar
   };
 
   // ---------- Letterhead ----------
-  const qualLines = wrap(CLINIC_INFO.qualification, regular, 8, CONTENT_W * 0.55);
-  const addrLines = wrap(CLINIC_INFO.address, regular, 8.5, CONTENT_W * 0.36);
+  const qualLines = [
+    ...wrap(lh.qualification, regular, 8, CONTENT_W * 0.55),
+    ...(lh.regNo ? [`Reg. No.: ${lh.regNo}`] : []),
+  ].filter((l) => l !== '');
+  const addrLines = wrap(lh.address, regular, 8.5, CONTENT_W * 0.36);
 
   const nameBase = y - 22;
-  text(CLINIC_INFO.doctorName, MARGIN, nameBase, { font: serifBold, size: 26, color: NAVY });
+  text(lh.doctorName, MARGIN, nameBase, { font: serifBold, size: 26, color: NAVY });
   let ly = nameBase - 16;
   qualLines.forEach((l) => {
     text(l, MARGIN, ly, { size: 8, color: GRAY });
@@ -175,14 +179,14 @@ export async function generatePrescriptionPdf(rx: Prescription): Promise<Uint8Ar
   const leftEnd = ly + 11;
 
   let ry = nameBase + 6;
-  textRight(CLINIC_INFO.clinicName, RIGHT, ry, { font: bold, size: 11, color: INK });
+  textRight(lh.clinicName, RIGHT, ry, { font: bold, size: 11, color: INK });
   ry -= 14;
   addrLines.forEach((l) => {
     textRight(l, RIGHT, ry, { size: 8.5, color: GRAY });
     ry -= 11;
   });
-  textRight(`Phone: ${CLINIC_INFO.phone}`, RIGHT, ry, { size: 8.5, color: GRAY });
-  const rightEnd = ry;
+  if (lh.phone) textRight(`Phone: ${lh.phone}`, RIGHT, ry, { size: 8.5, color: GRAY });
+  const rightEnd = lh.phone ? ry : ry + 11;
 
   y = Math.min(leftEnd, rightEnd) - 14;
   doubleRule(y);
@@ -363,19 +367,20 @@ export async function generatePrescriptionPdf(rx: Prescription): Promise<Uint8Ar
   const sigY = Math.min(y - 52, MARGIN + 76);
   const sigW = 190;
   hline(sigY, 0.8, INK, RIGHT - sigW, RIGHT);
-  textCentered(CLINIC_INFO.doctorName, RIGHT - sigW / 2, sigY - 14, { font: bold, size: 10.5 });
+  textCentered(lh.doctorName, RIGHT - sigW / 2, sigY - 14, { font: bold, size: 10.5 });
   textCentered('Signature', RIGHT - sigW / 2, sigY - 26, { size: 8, color: GRAY });
 
-  text(`This prescription was issued by ${CLINIC_INFO.clinicName}.`, MARGIN, sigY + 2, { size: 8, color: GRAY });
+  text(`This prescription was issued by ${lh.clinicName}.`, MARGIN, sigY + 2, { size: 8, color: GRAY });
   text('Take medicines only as directed.', MARGIN, sigY - 9, { size: 8, color: GRAY });
 
   // ---------- Footer on every page ----------
+  const addressOneLine = lh.address.replace(/\s*\n\s*/g, ', ');
   const pages = pdf.getPages();
   pages.forEach((p, idx) => {
     page = p;
     hline(40, 0.6, RULE);
-    textCentered(`${CLINIC_INFO.clinicName}   |   ${CLINIC_INFO.address}`, PAGE_W / 2, 27, { size: 7.5, color: GRAY });
-    textCentered(`Phone: ${CLINIC_INFO.phone}`, PAGE_W / 2, 17, { size: 7.5, color: GRAY });
+    textCentered(`${lh.clinicName}${addressOneLine ? `   |   ${addressOneLine}` : ''}`, PAGE_W / 2, 27, { size: 7.5, color: GRAY });
+    if (lh.phone) textCentered(`Phone: ${lh.phone}`, PAGE_W / 2, 17, { size: 7.5, color: GRAY });
     if (pages.length > 1) {
       textRight(`Page ${idx + 1} of ${pages.length}`, RIGHT, 17, { size: 7.5, color: MID });
     }

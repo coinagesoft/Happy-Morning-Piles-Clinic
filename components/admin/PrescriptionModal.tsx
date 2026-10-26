@@ -11,12 +11,26 @@ import {
   describeTiming,
   formatRxDate,
   renderPrescriptionHtml,
+  CLINIC_INFO,
+  LETTERHEAD_LIMITS,
+  type Letterhead,
 } from '@/lib/prescriptionTemplate';
 import { Medicine } from '@/lib/medicines';
-import { IconCross, IconPlus, IconTrash, IconMail, IconRefresh, IconFileText, IconPill } from './AdminIcons';
+import { IconCross, IconPlus, IconTrash, IconMail, IconRefresh, IconFileText, IconPill, IconEdit, IconCopy, IconCheck } from './AdminIcons';
 
 // Fallback potency list, used only when the selected medicine has no potencies saved in the database.
 const POTENCIES = ['Q', '3X', '6X', '6C', '12C', '30C', '200C', '1M', '10M'];
+
+// One-click suggestions so the doctor rarely has to type quantity / duration / dose.
+const QTY_OPTIONS = ['4 pills', '5 pills', '6 pills', '8 pills', '10 pills', '5 drops', '10 drops', '1 tsp', '1/2 tsp', '1 dram'];
+const DURATION_OPTIONS = ['3 days', '5 days', '7 days', '10 days', '14 days', '15 days', '1 month', '2 months', 'SOS'];
+const DOSE_PRESETS = ['1-0-1', '1-1-1', '1-0-0', '0-1-0', '0-0-1', '1-1-0', '0-1-1'];
+const FOOD_OPTIONS: { value: PrescriptionMedicine['timing']; label: string }[] = [
+  { value: 'any', label: 'Any time' },
+  { value: 'before', label: 'Before food' },
+  { value: 'after', label: 'After food' },
+  { value: 'with', label: 'With food' },
+];
 
 interface PrescriptionModalProps {
   appointment: Appointment | null;
@@ -70,8 +84,8 @@ interface SuggestInputProps {
   placeholder?: string;
   className?: string;
   inputRef?: React.Ref<HTMLInputElement>;
-  /** Called when Enter is pressed and no suggestion is highlighted. */
-  onEnter?: () => void;
+  /** Called when Enter is pressed and no suggestion is highlighted. Receives the best matching suggestion (if the typed text is only partial). */
+  onEnter?: (bestMatch?: string) => void;
 }
 
 function SuggestInput({ value, onChange, options, placeholder, className, inputRef, onEnter }: SuggestInputProps) {
@@ -115,7 +129,8 @@ function SuggestInput({ value, onChange, options, placeholder, className, inputR
         e.preventDefault();
         e.stopPropagation(); // the form-level Enter handler must not add it a second time
         setOpen(false);
-        onEnter();
+        const best = showList && q && filtered.length > 0 && filtered[0].toLowerCase() !== q ? filtered[0] : undefined;
+        onEnter(best);
       }
       return;
     }
@@ -233,8 +248,20 @@ export default function PrescriptionModal({
   const [previewRx, setPreviewRx] = useState<Prescription | null>(null);
   const previewFrameRef = useRef<HTMLIFrameElement | null>(null);
   const nameInputRef = useRef<HTMLInputElement | null>(null);
+  const doseTouchedRef = useRef(false); // has a key been pressed in the dose box since it got focus?
+  const doseBufRef = useRef(''); // digits typed so far (1 0 1)
   const tableWrapRef = useRef<HTMLDivElement | null>(null);
   const [scheduleDraft, setScheduleDraft] = useState<string | null>(null);
+  // Row highlight after add/update, and the last removed medicine (for Undo)
+  const [showTips, setShowTips] = useState(false);
+  // Letterhead (name / address / phone printed on the PDF) - editable by the doctor
+  const [letterhead, setLetterhead] = useState<Letterhead>({ ...CLINIC_INFO });
+  const [lhCustomised, setLhCustomised] = useState(false);
+  const [lhDraft, setLhDraft] = useState<Letterhead | null>(null);
+  const [lhBusy, setLhBusy] = useState<'save' | 'reset' | null>(null);
+  const [flashIndex, setFlashIndex] = useState<number | null>(null);
+  const [removed, setRemoved] = useState<{ med: PrescriptionMedicine; index: number } | null>(null);
+  const removedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [advice, setAdvice] = useState('');
   const [followUp, setFollowUp] = useState('');
   const [sendTo, setSendTo] = useState('');
@@ -257,6 +284,7 @@ export default function PrescriptionModal({
     setShowAllHistory(false);
     setEntry(emptyMedicine());
     setEditIndex(null);
+    setRemoved(null);
     setPreviewRx(null);
 
     (async () => {
@@ -292,6 +320,27 @@ export default function PrescriptionModal({
       cancelled = true;
     };
   }, [appointment, adminFetch]);
+
+  // Load the saved letterhead once the panel is opened
+  const hasAppointment = !!appointment;
+  useEffect(() => {
+    if (!hasAppointment) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await adminFetch('/api/admin/prescriptions/letterhead');
+        const data = await res.json();
+        if (cancelled || !res.ok) return;
+        if (data.letterhead) setLetterhead(data.letterhead);
+        setLhCustomised(!!data.customised);
+      } catch {
+        // keep the built-in default
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [hasAppointment, adminFetch]);
 
   // Ready to type: put the cursor in the medicine name as soon as the form is shown
   useEffect(() => {
@@ -383,35 +432,52 @@ export default function PrescriptionModal({
     });
   };
 
-  /** Adds the entry to the table (or updates the row being edited). */
-  const submitEntry = () => {
-    if (!entry.name.trim()) {
-      toast.error('Enter the medicine name first.');
-      return;
-    }
-    setMedicines((prev) =>
-      editIndex === null ? [...prev, { ...entry }] : prev.map((m, i) => (i === editIndex ? { ...entry } : m))
-    );
-    // Keep quantity / dose / food / duration for the next medicine (usually the same), clear the rest
+  /** Clears the entry form but keeps the fields that are usually the same for the next medicine. */
+  const resetEntryKeepingCommon = (base: PrescriptionMedicine = entry) => {
     setEntry({
       ...emptyMedicine(),
-      quantity: entry.quantity,
-      morning: entry.morning,
-      afternoon: entry.afternoon,
-      night: entry.night,
-      timing: entry.timing,
-      duration: entry.duration,
+      quantity: base.quantity,
+      morning: base.morning,
+      afternoon: base.afternoon,
+      night: base.night,
+      timing: base.timing,
+      duration: base.duration,
     });
     setScheduleDraft(null);
     setEditIndex(null);
-    setDirty(true);
-    setTimeout(() => {
-      nameInputRef.current?.focus();
-      if (tableWrapRef.current) tableWrapRef.current.scrollTop = tableWrapRef.current.scrollHeight;
-    }, 30);
   };
 
-  /** Keyboard shortcuts: Enter adds the medicine, Ctrl+Enter saves, Alt+P previews. */
+  /** The medicine list including whatever is typed in the form but not yet added. */
+  const listWithPending = (base: PrescriptionMedicine = entry): PrescriptionMedicine[] => {
+    if (!base.name.trim()) return medicines;
+    return editIndex === null ? [...medicines, { ...base }] : medicines.map((m, i) => (i === editIndex ? { ...base } : m));
+  };
+
+  /** Adds the entry to the table (or updates the row being edited). */
+  const submitEntry = (override?: Partial<PrescriptionMedicine>) => {
+    const base: PrescriptionMedicine = { ...entry, ...(override || {}) };
+    // Medicine picked by Enter (best match): fill its first saved potency like Tab does
+    if (override?.name && !base.potency) {
+      const matched = (availableMedicines || []).find((am) => am.name.trim().toLowerCase() === override.name!.trim().toLowerCase());
+      const first = matched?.potency?.split(',')[0].trim();
+      if (first) base.potency = first;
+    }
+    if (!base.name.trim()) {
+      toast.error('Enter the medicine name first.');
+      nameInputRef.current?.focus();
+      return;
+    }
+    const next = listWithPending(base);
+    const idx = editIndex === null ? next.length - 1 : editIndex;
+    setMedicines(next);
+    resetEntryKeepingCommon(base);
+    setDirty(true);
+    setFlashIndex(idx);
+    setTimeout(() => setFlashIndex((cur) => (cur === idx ? null : cur)), 1600);
+    setTimeout(() => nameInputRef.current?.focus(), 30);
+  };
+
+  /** Keyboard shortcuts: Enter adds the medicine, Ctrl+Enter saves, Alt+P previews, Esc cancels an edit. */
   const handleBodyKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
       e.preventDefault();
@@ -424,8 +490,88 @@ export default function PrescriptionModal({
       return;
     }
     const target = e.target as HTMLElement;
-    if (e.key === 'Enter' && target.closest('.rx-entry-form') && target.tagName !== 'BUTTON') {
+    if (e.key === 'Escape' && editIndex !== null && target.closest('.rx2-entry')) {
       e.preventDefault();
+      e.stopPropagation();
+      cancelEdit();
+      return;
+    }
+    if (e.key === 'Enter' && target.closest('.rx2-entry') && target.tagName !== 'BUTTON') {
+      e.preventDefault();
+      submitEntry();
+    }
+  };
+
+  const cycleDose = (dir: 1 | -1 = 1) => {
+    const cur = DOSE_PRESETS.indexOf(scheduleText(entry));
+    const next = cur >= 0 ? (cur + dir + DOSE_PRESETS.length) % DOSE_PRESETS.length : dir > 0 ? 0 : DOSE_PRESETS.length - 1;
+    updateEntry(parseSchedule(DOSE_PRESETS[next]));
+  };
+
+  /**
+   * Dose box, one key each:  B = 1-0-1 (twice a day) · T = 1-1-1 (three times) ·
+   * M / A / N = that time only (press more to add: M then N = 1-0-1) · digits 1 0 1 also work ·
+   * arrows cycle the common doses · Enter adds the medicine.
+   */
+  const handleDoseKey = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const k = e.key.toLowerCase();
+    const slots: Record<string, 'morning' | 'afternoon' | 'night'> = { m: 'morning', a: 'afternoon', n: 'night' };
+    if (k === 'b' || k === 't') {
+      e.preventDefault();
+      updateEntry(parseSchedule(k === 'b' ? '101' : '111'));
+      doseTouchedRef.current = true;
+      doseBufRef.current = '';
+    } else if (slots[k]) {
+      e.preventDefault();
+      const key = slots[k];
+      updateEntry(
+        doseTouchedRef.current
+          ? { [key]: true }
+          : { morning: false, afternoon: false, night: false, [key]: true }
+      );
+      doseTouchedRef.current = true;
+      doseBufRef.current = '';
+    } else if (k === '0' || k === '1') {
+      e.preventDefault();
+      doseBufRef.current = (doseBufRef.current.length >= 3 ? '' : doseBufRef.current) + k;
+      updateEntry(parseSchedule(doseBufRef.current));
+      doseTouchedRef.current = true;
+    } else if (k === 'arrowright' || k === 'arrowdown' || k === ' ') {
+      e.preventDefault();
+      cycleDose(1);
+    } else if (k === 'arrowleft' || k === 'arrowup') {
+      e.preventDefault();
+      cycleDose(-1);
+    } else if (k === 'enter') {
+      e.preventDefault();
+      e.stopPropagation();
+      submitEntry();
+    }
+  };
+
+  const cycleFood = (dir: 1 | -1 = 1) => {
+    const i = FOOD_OPTIONS.findIndex((o) => o.value === entry.timing);
+    const next = FOOD_OPTIONS[(i + dir + FOOD_OPTIONS.length) % FOOD_OPTIONS.length];
+    updateEntry({ timing: next.value });
+  };
+
+  /** Food field is keyboard-first: A = after, B = before, W = with, T = any time, arrows cycle, Enter adds. */
+  const handleFoodKey = (e: React.KeyboardEvent<HTMLButtonElement>) => {
+    const k = e.key.toLowerCase();
+    const direct: Record<string, PrescriptionMedicine['timing']> = { a: 'after', b: 'before', w: 'with', t: 'any' };
+    if (direct[k]) {
+      e.preventDefault();
+      updateEntry({ timing: direct[k] });
+    } else if (k === 'arrowright' || k === 'arrowdown') {
+      e.preventDefault();
+      cycleFood(1);
+    } else if (k === 'arrowleft' || k === 'arrowup') {
+      e.preventDefault();
+      cycleFood(-1);
+    } else if (k === 'enter') {
+      e.preventDefault();
+      e.stopPropagation();
       submitEntry();
     }
   };
@@ -434,7 +580,10 @@ export default function PrescriptionModal({
     setEntry({ ...medicines[index] });
     setScheduleDraft(null);
     setEditIndex(index);
-    setTimeout(() => nameInputRef.current?.focus(), 30);
+    setTimeout(() => {
+      nameInputRef.current?.focus();
+      nameInputRef.current?.select();
+    }, 30);
   };
 
   const cancelEdit = () => {
@@ -444,13 +593,99 @@ export default function PrescriptionModal({
     setTimeout(() => nameInputRef.current?.focus(), 30);
   };
 
+  /** Removes a row straight away; an Undo bar brings it back for a few seconds. */
   const removeMed = (index: number) => {
+    const med = medicines[index];
+    if (!med) return;
     setMedicines((prev) => prev.filter((_, i) => i !== index));
-    if (editIndex !== null) cancelEdit();
+    if (editIndex !== null) {
+      if (editIndex === index) cancelEdit();
+      else if (editIndex > index) setEditIndex(editIndex - 1);
+    }
+    setRemoved({ med, index });
+    if (removedTimerRef.current) clearTimeout(removedTimerRef.current);
+    removedTimerRef.current = setTimeout(() => setRemoved(null), 8000);
     setDirty(true);
   };
 
-  const hasMedicine = medicines.length > 0;
+  const undoRemove = () => {
+    if (!removed) return;
+    const { med, index } = removed;
+    setMedicines((prev) => {
+      const copy = [...prev];
+      copy.splice(Math.min(index, copy.length), 0, med);
+      return copy;
+    });
+    if (editIndex !== null && editIndex >= index) setEditIndex(editIndex + 1);
+    setRemoved(null);
+    if (removedTimerRef.current) clearTimeout(removedTimerRef.current);
+    setDirty(true);
+    setFlashIndex(index);
+    setTimeout(() => setFlashIndex((cur) => (cur === index ? null : cur)), 1600);
+  };
+
+  /** Copies a row right below itself and opens it for editing (same medicine, different potency etc.). */
+  const duplicateMed = (index: number) => {
+    const copy = { ...medicines[index] };
+    setMedicines((prev) => {
+      const next = [...prev];
+      next.splice(index + 1, 0, copy);
+      return next;
+    });
+    setEntry(copy);
+    setEditIndex(index + 1);
+    setScheduleDraft(null);
+    setDirty(true);
+    setTimeout(() => nameInputRef.current?.focus(), 30);
+  };
+
+  const openLetterheadEditor = () => setLhDraft({ ...letterhead });
+
+  const saveLetterheadDraft = async () => {
+    if (!lhDraft) return;
+    if (!lhDraft.doctorName.trim() || !lhDraft.clinicName.trim()) {
+      toast.error('Doctor name and clinic name are required.');
+      return;
+    }
+    setLhBusy('save');
+    try {
+      const res = await adminFetch('/api/admin/prescriptions/letterhead', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ letterhead: lhDraft }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to save letterhead');
+      setLetterhead(data.letterhead);
+      setLhCustomised(true);
+      setLhDraft(null);
+      toast.success('Letterhead saved. New PDFs, emails and WhatsApp copies will use it.');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to save letterhead');
+    } finally {
+      setLhBusy(null);
+    }
+  };
+
+  const resetLetterhead = async () => {
+    if (!window.confirm('Go back to the original clinic details?')) return;
+    setLhBusy('reset');
+    try {
+      const res = await adminFetch('/api/admin/prescriptions/letterhead', { method: 'DELETE' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to reset letterhead');
+      setLetterhead(data.letterhead);
+      setLhCustomised(false);
+      setLhDraft(null);
+      toast.success('Letterhead reset to the original details.');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to reset letterhead');
+    } finally {
+      setLhBusy(null);
+    }
+  };
+
+  const hasMedicine = listWithPending().some((m) => m.name.trim());
 
   /** Preview of what is currently typed in the form (not saved yet). */
   const buildPreviewRx = (): Prescription => ({
@@ -462,7 +697,7 @@ export default function PrescriptionModal({
     patientAge: appointment.age,
     date,
     diagnosis,
-    medicines: medicines.filter((m) => m.name.trim()),
+    medicines: listWithPending().filter((m) => m.name.trim()),
     advice,
     followUp,
     createdAt: prescription?.createdAt || new Date().toISOString(),
@@ -488,19 +723,22 @@ export default function PrescriptionModal({
 
   /** Saves the current form; returns the saved prescription, or null on failure. */
   const save = async (silent = false): Promise<Prescription | null> => {
-    if (entry.name.trim()) {
-      toast.error('Click "Add" to put the medicine you typed into the list first.');
+    // A medicine typed but not yet added is added automatically - no extra click needed.
+    const finalMeds = listWithPending().filter((m) => m.name.trim());
+    if (finalMeds.length === 0) {
+      toast.error('Add at least one medicine first.');
+      nameInputRef.current?.focus();
       return null;
     }
-    if (!hasMedicine) {
-      toast.error('Add at least one medicine first.');
-      return null;
+    if (entry.name.trim()) {
+      setMedicines(finalMeds);
+      resetEntryKeepingCommon();
     }
     try {
       const res = await adminFetch('/api/admin/prescriptions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ appointmentId: appointment.id, date, diagnosis, medicines, advice, followUp }),
+        body: JSON.stringify({ appointmentId: appointment.id, date, diagnosis, medicines: finalMeds, advice, followUp }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to save prescription');
@@ -620,7 +858,7 @@ export default function PrescriptionModal({
 
   return (
     <div className="admin-drawer-overlay" role="dialog" aria-modal="true" aria-label="Prescription" onClick={handleClose}>
-      <aside className="admin-drawer-panel admin-drawer-panel-rx" onClick={(e) => e.stopPropagation()}>
+      <aside className="admin-drawer-panel admin-drawer-panel-rx rx2" onClick={(e) => e.stopPropagation()}>
         {/* Drawer Header — matches the Notes / Reschedule panel style */}
         <header className="drawer-header">
           <div className="drawer-title-wrap">
@@ -636,9 +874,19 @@ export default function PrescriptionModal({
               </p>
             </div>
           </div>
-          <button type="button" className="btn-drawer-close" onClick={handleClose} aria-label="Close prescription panel">
-            <IconCross />
-          </button>
+          <div className="rx2-head-actions">
+            <button
+              type="button"
+              className="rx2-lh-btn"
+              onClick={openLetterheadEditor}
+              title="Change the doctor / clinic name, address and phone printed on the prescription PDF"
+            >
+              <IconEdit size={14} /> Edit letterhead
+            </button>
+            <button type="button" className="btn-drawer-close" onClick={handleClose} aria-label="Close prescription panel">
+              <IconCross />
+            </button>
+          </div>
         </header>
 
         {loading ? (
@@ -699,104 +947,127 @@ export default function PrescriptionModal({
               </label>
             </div>
 
-            <div className="rx-section-title">
-              <span>{editIndex === null ? 'Add medicine' : `Edit medicine #${editIndex + 1}`}</span>
-            </div>
+            {/* ---------------- ADD / EDIT MEDICINE ---------------- */}
+            <section className={`rx2-entry ${editIndex !== null ? 'is-editing' : ''}`} aria-label="Add medicine">
+              <div className="rx2-entry-head">
+                <h4>{editIndex === null ? 'Add medicine' : `Editing medicine #${editIndex + 1}`}</h4>
+                <div className="rx2-head-right">
+                  {editIndex !== null && <span className="rx2-edit-pill">Editing — press Update, or Esc to cancel</span>}
+                  <button
+                    type="button"
+                    className={`rx2-tips-btn ${showTips ? 'on' : ''}`}
+                    tabIndex={-1}
+                    aria-expanded={showTips}
+                    onClick={() => setShowTips((v) => !v)}
+                    title="Show / hide keyboard tips"
+                  >
+                    <span aria-hidden="true">?</span> Tips
+                  </button>
+                </div>
+              </div>
 
-            <div className="rx-med-card rx-entry-form">
-              <div className="rx-quick-grid">
-                <label className="rx-field rx-q-name">
+              <div className="rx2-grid">
+                <label className="rx-field rx2-name">
                   <span>Medicine</span>
                   <SuggestInput
                     className="rx-input"
-                    placeholder="Type name, Tab to accept"
+                    placeholder="Type name, then Enter to add"
                     options={remedyOptions}
                     value={entry.name}
                     onChange={(v) => updateEntry({ name: v })}
                     inputRef={nameInputRef}
-                    onEnter={submitEntry}
+                    onEnter={(best) => submitEntry(best ? { name: best } : undefined)}
                   />
                 </label>
-                <label className="rx-field rx-q-potency">
+                <label className="rx-field rx2-potency">
                   <span>Potency</span>
                   <SuggestInput
                     className="rx-input"
-                    placeholder="30C"
+                    placeholder="e.g. 30C"
                     options={potencyOptionsFor(entry.name)}
                     value={entry.potency}
                     onChange={(v) => updateEntry({ potency: v })}
-                    onEnter={submitEntry}
+                    onEnter={(best) => submitEntry(best ? { potency: best } : undefined)}
                   />
                 </label>
-                <label className="rx-field rx-q-qty">
+                <label className="rx-field rx2-qty">
                   <span>Quantity</span>
-                  <input
-                    type="text"
-                    placeholder="4 pills"
+                  <SuggestInput
+                    className="rx-input"
+                    placeholder="e.g. 4 pills"
+                    options={QTY_OPTIONS}
                     value={entry.quantity}
-                    onChange={(e) => updateEntry({ quantity: e.target.value })}
+                    onChange={(v) => updateEntry({ quantity: v })}
+                    onEnter={(best) => submitEntry(best ? { quantity: best } : undefined)}
                   />
                 </label>
-                <div className="rx-field rx-q-dose">
-                  <span>Dose M-A-N</span>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    placeholder="1-0-1"
-                    maxLength={5}
-                    value={scheduleDraft ?? scheduleText(entry)}
-                    title="Morning-Afternoon-Night. Type 101 for morning + night, 111 for all three, 100 for morning only"
-                    onChange={(e) => {
-                      setScheduleDraft(e.target.value);
-                      updateEntry(parseSchedule(e.target.value));
+                <div className="rx-field rx2-dose">
+                  <span>
+                    Dose <em>B · T · M · A · N</em>
+                  </span>
+                  <div
+                    className="rx2-dose-box"
+                    tabIndex={0}
+                    role="group"
+                    aria-label="Dose: morning, afternoon, night"
+                    title="B = 1-0-1 · T = 1-1-1 · M / A / N = morning / afternoon / night · or type 1 0 1 · arrows cycle common doses"
+                    onFocus={() => {
+                      doseTouchedRef.current = false;
+                      doseBufRef.current = '';
                     }}
-                    onBlur={() => setScheduleDraft(null)}
-                  />
-                  <div className="rx-chips rx-chips-mini" aria-hidden="true">
-                    {(
-                      [
-                        ['morning', 'M'],
-                        ['afternoon', 'A'],
-                        ['night', 'N'],
-                      ] as const
-                    ).map(([key, label]) => (
-                      <button
-                        type="button"
-                        key={key}
-                        tabIndex={-1}
-                        className={`rx-chip ${entry[key] ? 'on' : ''}`}
-                        onClick={() => {
-                          setScheduleDraft(null);
-                          updateEntry({ [key]: !entry[key] } as Partial<PrescriptionMedicine>);
-                        }}
-                      >
-                        {label}
-                      </button>
-                    ))}
+                    onKeyDown={handleDoseKey}
+                  >
+                    <span className="rx2-dose-big">{scheduleText(entry)}</span>
+                    <span className="rx2-slots">
+                      {(
+                        [
+                          ['morning', 'M', 'Morning'],
+                          ['afternoon', 'A', 'Afternoon'],
+                          ['night', 'N', 'Night'],
+                        ] as const
+                      ).map(([key, letter, label]) => (
+                        <button
+                          type="button"
+                          key={key}
+                          tabIndex={-1}
+                          title={label}
+                          aria-pressed={entry[key]}
+                          className={`rx2-slot ${entry[key] ? 'on' : ''}`}
+                          onClick={() => updateEntry({ [key]: !entry[key] } as Partial<PrescriptionMedicine>)}
+                        >
+                          {letter}
+                        </button>
+                      ))}
+                    </span>
                   </div>
                 </div>
-                <label className="rx-field rx-q-food">
-                  <span>Food</span>
-                  <select
-                    value={entry.timing}
-                    onChange={(e) => updateEntry({ timing: e.target.value as PrescriptionMedicine['timing'] })}
+                <div className="rx-field rx2-food">
+                  <span>
+                    Food <em>A · B · W</em>
+                  </span>
+                  <button
+                    type="button"
+                    className="rx2-food-btn"
+                    onClick={() => cycleFood(1)}
+                    onKeyDown={handleFoodKey}
+                    title="Press A = after food, B = before food, W = with food, T = any time"
                   >
-                    <option value="any">Any time</option>
-                    <option value="before">Before food</option>
-                    <option value="after">After food</option>
-                    <option value="with">With food</option>
-                  </select>
-                </label>
-                <label className="rx-field rx-q-duration">
+                    {FOOD_OPTIONS.find((o) => o.value === entry.timing)?.label}
+                  </button>
+                </div>
+
+                <label className="rx-field rx2-duration">
                   <span>Duration</span>
-                  <input
-                    type="text"
-                    placeholder="7 days"
+                  <SuggestInput
+                    className="rx-input"
+                    placeholder="e.g. 7 days"
+                    options={DURATION_OPTIONS}
                     value={entry.duration}
-                    onChange={(e) => updateEntry({ duration: e.target.value })}
+                    onChange={(v) => updateEntry({ duration: v })}
+                    onEnter={(best) => submitEntry(best ? { duration: best } : undefined)}
                   />
                 </label>
-                <label className="rx-field rx-q-note">
+                <label className="rx-field rx2-note">
                   <span>Special instructions (optional)</span>
                   <input
                     type="text"
@@ -805,99 +1076,141 @@ export default function PrescriptionModal({
                     onChange={(e) => updateEntry({ instructions: e.target.value })}
                   />
                 </label>
-                <div className="rx-q-actions">
+                <div className="rx2-actions">
                   {editIndex !== null && (
-                    <button type="button" className="rx-btn rx-btn-ghost" onClick={cancelEdit}>
+                    <button type="button" className="rx-btn rx-btn-ghost" tabIndex={-1} onClick={cancelEdit}>
                       Cancel
                     </button>
                   )}
-                  <button type="button" className="rx-add-btn" onClick={submitEntry}>
-                    <IconPlus /> {editIndex === null ? 'Add' : 'Update'}
+                  <button type="button" className="rx2-add-btn" onClick={() => submitEntry()}>
+                    {editIndex === null ? <IconPlus /> : <IconCheck size={15} />}
+                    {editIndex === null ? 'Add' : 'Update'}
                   </button>
                 </div>
               </div>
-              <p className="rx-shortcuts">
-                <kbd>Tab</kbd> next field &nbsp;·&nbsp; <kbd>Enter</kbd> add medicine &nbsp;·&nbsp; <kbd>Ctrl</kbd>+<kbd>Enter</kbd> save
-                &nbsp;·&nbsp; <kbd>Alt</kbd>+<kbd>P</kbd> preview &nbsp;·&nbsp; dose: type <kbd>101</kbd> for morning + night
+
+              {showTips && (
+              <p className="rx2-shortcuts">
+                <strong>Fast flow:</strong> type medicine → <kbd>Enter</kbd> adds it (best match is picked; potency, qty, dose, food and duration repeat from the last one).
+                Change only what differs with <kbd>Tab</kbd>: dose <kbd>B</kbd> = 1-0-1 · <kbd>T</kbd> = 1-1-1 · <kbd>M</kbd>/<kbd>A</kbd>/<kbd>N</kbd> (or type 101) · food <kbd>A</kbd>/<kbd>B</kbd>/<kbd>W</kbd> · <kbd>Enter</kbd> adds ·{' '}
+                <kbd>Ctrl</kbd>+<kbd>Enter</kbd> save · <kbd>Alt</kbd>+<kbd>P</kbd> preview
               </p>
-            </div>
+              )}
+            </section>
 
-            <div className="rx-section-title">
-              <span>Prescribed medicines ({medicines.length})</span>
-            </div>
-            {medicines.length === 0 ? (
-              <p className="rx-empty">No medicines added yet. Fill the form above and click “Add to prescription”.</p>
-            ) : (
-              <div className="rx-table-wrap" ref={tableWrapRef}>
-                <table className="rx-table">
-                  <thead>
-                    <tr>
-                      <th>#</th>
-                      <th>Medicine</th>
-                      <th>Qty</th>
-                      <th>When</th>
-                      <th>Duration</th>
-                      <th />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {medicines.map((m, i) => (
-                      <tr key={i} className={editIndex === i ? 'is-editing' : ''}>
-                        <td>{i + 1}</td>
-                        <td>
-                          <strong>{m.name}</strong>
-                          {m.potency ? <span className="rx-table-potency"> {m.potency}</span> : null}
-                          {m.instructions ? <div className="rx-table-note">{m.instructions}</div> : null}
-                        </td>
-                        <td>{m.quantity || '—'}</td>
-                        <td>
-                          {describeSchedule(m)}
-                          {describeTiming(m.timing) ? <div className="rx-table-note">{describeTiming(m.timing)}</div> : null}
-                        </td>
-                        <td>{m.duration || '—'}</td>
-                        <td className="rx-table-actions">
-                          <button type="button" className="rx-table-btn" onClick={() => editMed(i)}>
-                            Edit
-                          </button>
-                          <button type="button" className="rx-med-remove" onClick={() => removeMed(i)} title="Remove medicine">
-                            <IconTrash size={14} />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+            {/* ---------------- PRESCRIBED LIST ---------------- */}
+            <section aria-label="Prescribed medicines">
+              <div className="rx2-list-head">
+                <h4>
+                  Prescribed medicines <span className="rx2-count">{medicines.length}</span>
+                </h4>
+                {removed && (
+                  <div className="rx2-undo" role="status">
+                    <span>
+                      Removed <strong>{removed.med.name || 'medicine'}</strong>
+                    </span>
+                    <button type="button" onClick={undoRemove}>
+                      Undo
+                    </button>
+                  </div>
+                )}
               </div>
-            )}
 
-            <label className="rx-field">
-              <span>Advice / Diet</span>
-              <textarea
-                rows={3}
-                value={advice}
-                placeholder="Diet, lifestyle, things to avoid…"
-                onChange={(e) => { setAdvice(e.target.value); setDirty(true); }}
-              />
-            </label>
+              {medicines.length === 0 ? (
+                <p className="rx2-empty">No medicines yet. Type a name above and press Enter to add it.</p>
+              ) : (
+                <div className="rx2-table-wrap" ref={tableWrapRef}>
+                  <table className="rx2-table">
+                    <colgroup>
+                      <col style={{ width: 44 }} />
+                      <col />
+                      <col style={{ width: 104 }} />
+                      <col style={{ width: 196 }} />
+                      <col style={{ width: 104 }} />
+                      <col style={{ width: 104 }} />
+                      <col style={{ width: 150 }} />
+                    </colgroup>
+                    <thead>
+                      <tr>
+                        <th>#</th>
+                        <th>Medicine</th>
+                        <th>Qty</th>
+                        <th>Dose</th>
+                        <th>Food</th>
+                        <th>Duration</th>
+                        <th aria-label="Actions" />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {medicines.map((m, i) => (
+                        <tr
+                          key={i}
+                          className={`${editIndex === i ? 'is-editing' : ''} ${flashIndex === i ? 'is-flash' : ''}`}
+                          onDoubleClick={() => editMed(i)}
+                        >
+                          <td className="rx2-num">{i + 1}</td>
+                          <td>
+                            <div className="rx2-med-line">
+                              <strong>{m.name}</strong>
+                              {m.potency ? <span className="rx2-potency-tag">{m.potency}</span> : null}
+                            </div>
+                            {m.instructions ? <div className="rx2-sub">{m.instructions}</div> : null}
+                          </td>
+                          <td>{m.quantity || <span className="rx2-dash">—</span>}</td>
+                          <td>
+                            <span className="rx2-dose-code">{scheduleText(m)}</span>
+                            <div className="rx2-sub rx2-nowrap">{describeSchedule(m)}</div>
+                          </td>
+                          <td className="rx2-food-cell">{describeTiming(m.timing) || <span className="rx2-dash">Any time</span>}</td>
+                          <td>{m.duration || <span className="rx2-dash">—</span>}</td>
+                          <td>
+                            <div className="rx2-row-actions">
+                              <button type="button" className="rx2-icon-btn rx2-edit" onClick={() => editMed(i)} title="Edit (or double-click the row)">
+                                <IconEdit size={14} /> Edit
+                              </button>
+                              <button type="button" className="rx2-icon-btn" onClick={() => duplicateMed(i)} title="Duplicate this medicine" aria-label="Duplicate">
+                                <IconCopy size={14} />
+                              </button>
+                              <button type="button" className="rx2-icon-btn rx2-del" onClick={() => removeMed(i)} title="Remove" aria-label="Remove medicine">
+                                <IconTrash size={14} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
 
-            <label className="rx-field">
-              <span>Follow-up</span>
-              <input
-                type="text"
-                value={followUp}
-                placeholder="e.g. After 2 weeks / 2026-11-05"
-                onChange={(e) => { setFollowUp(e.target.value); setDirty(true); }}
-              />
-            </label>
-
-            <div className="rx-send-box">
+            {/* ---------------- ADVICE / FOLLOW-UP / EMAIL ---------------- */}
+            <section className="rx2-bottom" aria-label="Advice and follow-up">
+              <label className="rx-field rx2-advice">
+                <span>Advice / Diet</span>
+                <textarea
+                  rows={2}
+                  value={advice}
+                  placeholder="Diet, lifestyle, things to avoid…"
+                  onChange={(e) => { setAdvice(e.target.value); setDirty(true); }}
+                />
+              </label>
+              <label className="rx-field">
+                <span>Follow-up</span>
+                <input
+                  type="text"
+                  value={followUp}
+                  placeholder="e.g. After 2 weeks / 2026-11-05"
+                  onChange={(e) => { setFollowUp(e.target.value); setDirty(true); }}
+                />
+              </label>
               <label className="rx-field">
                 <span>
-                  <IconMail size={13} /> Send PDF to patient email
+                  <IconMail size={13} /> Patient email (for PDF)
                 </span>
                 <input type="email" value={sendTo} onChange={(e) => setSendTo(e.target.value)} placeholder="patient@email.com" />
               </label>
-            </div>
+            </section>
           </div>
         )}
 
@@ -909,9 +1222,10 @@ export default function PrescriptionModal({
             <button type="button" className="rx-btn rx-btn-outline" onClick={openPreview} disabled={busy !== null || loading}>
               <IconFileText size={14} /> Preview
             </button>
-            <button type="button" className="rx-btn rx-btn-outline" onClick={handleSave} disabled={busy !== null || loading}>
-              {busy === 'save' ? 'Saving…' : 'Save'}
+            <button type="button" className="rx-btn rx-btn-save" onClick={handleSave} disabled={busy !== null || loading}>
+              <IconCheck size={14} /> {busy === 'save' ? 'Saving…' : 'Save'}
             </button>
+            <span className="rx2-footer-sep" aria-hidden="true" />
             <button type="button" className="rx-btn rx-btn-outline" onClick={handleDownloadPdf} disabled={busy !== null || loading}>
               <IconFileText size={14} /> {busy === 'pdf' ? 'Preparing PDF…' : 'Print / Download PDF'}
             </button>
@@ -937,6 +1251,9 @@ export default function PrescriptionModal({
                 {previewRx.id !== 'preview' && previewRx.appointmentId !== appointment.id ? ' (previous visit)' : ''}
               </strong>
               <div className="rx-preview-bar-actions">
+                <button type="button" className="rx-btn rx-btn-outline" onClick={openLetterheadEditor}>
+                  <IconEdit size={14} /> Edit letterhead
+                </button>
                 <button
                   type="button"
                   className="rx-btn rx-btn-outline"
@@ -953,8 +1270,123 @@ export default function PrescriptionModal({
               ref={previewFrameRef}
               title="Prescription preview"
               className="rx-preview-frame"
-              srcDoc={renderPrescriptionHtml(previewRx)}
+              srcDoc={renderPrescriptionHtml(previewRx, letterhead)}
             />
+          </div>
+        </div>
+      )}
+
+      {lhDraft && (
+        <div className="rx2-lh-overlay" onClick={() => setLhDraft(null)} role="dialog" aria-modal="true" aria-label="Edit prescription letterhead">
+          <div className="rx2-lh" onClick={(e) => e.stopPropagation()}>
+            <div className="rx2-lh-head">
+              <div>
+                <h3>Prescription letterhead</h3>
+                <p>
+                  The name, address and phone printed at the top and bottom of every prescription PDF, email and WhatsApp copy.
+                  {lhCustomised ? ' (Customised)' : ' (Original details)'}
+                </p>
+              </div>
+              <button type="button" className="btn-drawer-close" onClick={() => setLhDraft(null)} aria-label="Close">
+                <IconCross />
+              </button>
+            </div>
+
+            {/* live preview of the PDF header */}
+            <div className="rx2-lh-preview" aria-label="Letterhead preview">
+              <div className="rx2-lh-prev-left">
+                <div className="rx2-lh-prev-name">{lhDraft.doctorName || 'Doctor name'}</div>
+                {lhDraft.qualification && <div className="rx2-lh-prev-small">{lhDraft.qualification}</div>}
+                {lhDraft.regNo && <div className="rx2-lh-prev-small">Reg. No.: {lhDraft.regNo}</div>}
+              </div>
+              <div className="rx2-lh-prev-right">
+                <strong>{lhDraft.clinicName || 'Clinic name'}</strong>
+                {lhDraft.address && <div style={{ whiteSpace: 'pre-line' }}>{lhDraft.address}</div>}
+                {lhDraft.phone && <div>Phone: {lhDraft.phone}</div>}
+              </div>
+            </div>
+
+            <div className="rx2-lh-form">
+              <label className="rx-field">
+                <span>Doctor name</span>
+                <input
+                  type="text"
+                  maxLength={LETTERHEAD_LIMITS.doctorName}
+                  value={lhDraft.doctorName}
+                  onChange={(e) => setLhDraft({ ...lhDraft, doctorName: e.target.value })}
+                  placeholder="e.g. Dr. Mahesh Shete"
+                  autoFocus
+                />
+              </label>
+              <label className="rx-field">
+                <span>Qualification / speciality</span>
+                <input
+                  type="text"
+                  maxLength={LETTERHEAD_LIMITS.qualification}
+                  value={lhDraft.qualification}
+                  onChange={(e) => setLhDraft({ ...lhDraft, qualification: e.target.value })}
+                  placeholder="e.g. BAMS | Piles & Fistula Specialist"
+                />
+              </label>
+              <label className="rx-field">
+                <span>Registration no. (optional)</span>
+                <input
+                  type="text"
+                  maxLength={LETTERHEAD_LIMITS.regNo}
+                  value={lhDraft.regNo}
+                  onChange={(e) => setLhDraft({ ...lhDraft, regNo: e.target.value })}
+                  placeholder="e.g. 2015/03/1234"
+                />
+              </label>
+              <label className="rx-field">
+                <span>Clinic name</span>
+                <input
+                  type="text"
+                  maxLength={LETTERHEAD_LIMITS.clinicName}
+                  value={lhDraft.clinicName}
+                  onChange={(e) => setLhDraft({ ...lhDraft, clinicName: e.target.value })}
+                  placeholder="e.g. Happy Morning Piles Clinic"
+                />
+              </label>
+              <label className="rx-field rx2-lh-wide">
+                <span>Address</span>
+                <textarea
+                  rows={3}
+                  maxLength={LETTERHEAD_LIMITS.address}
+                  value={lhDraft.address}
+                  onChange={(e) => setLhDraft({ ...lhDraft, address: e.target.value })}
+                  placeholder="Clinic address (you can use more than one line)"
+                />
+              </label>
+              <label className="rx-field">
+                <span>Phone</span>
+                <input
+                  type="text"
+                  maxLength={LETTERHEAD_LIMITS.phone}
+                  value={lhDraft.phone}
+                  onChange={(e) => setLhDraft({ ...lhDraft, phone: e.target.value })}
+                  placeholder="e.g. +91 70667 47811"
+                />
+              </label>
+            </div>
+            <p className="rx2-lh-note">
+              Tip: use English letters and numbers only — the PDF cannot print Marathi / Hindi text. Changes also apply when an
+              older prescription is downloaded or sent again.
+            </p>
+
+            <div className="rx2-lh-foot">
+              <button type="button" className="rx-btn rx-btn-ghost" onClick={resetLetterhead} disabled={lhBusy !== null || !lhCustomised}>
+                {lhBusy === 'reset' ? 'Resetting…' : 'Reset to original'}
+              </button>
+              <div className="rx2-lh-foot-right">
+                <button type="button" className="rx-btn rx-btn-ghost" onClick={() => setLhDraft(null)} disabled={lhBusy !== null}>
+                  Cancel
+                </button>
+                <button type="button" className="rx-btn rx-btn-primary" onClick={saveLetterheadDraft} disabled={lhBusy !== null}>
+                  {lhBusy === 'save' ? 'Saving…' : 'Save letterhead'}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

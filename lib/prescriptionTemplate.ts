@@ -32,14 +32,48 @@ export interface Prescription {
   updatedAt: string;
 }
 
-// ---- Clinic letterhead (edit these to change the printed header/footer) ----
-export const CLINIC_INFO = {
+// ---- Clinic letterhead ----
+// These are only the DEFAULTS. The doctor can change them any time from the prescription panel
+// ("Edit letterhead"); the saved version is stored in the database and used for the PDF, email and WhatsApp copy.
+export interface Letterhead {
+  doctorName: string;
+  qualification: string; // e.g. "BAMS | Piles & Fistula Specialist"
+  clinicName: string;
+  address: string; // may contain line breaks
+  phone: string;
+  regNo: string; // optional registration number, printed under the qualification
+}
+
+export const CLINIC_INFO: Letterhead = {
   doctorName: CLINIC.doctor.name,
   qualification: CLINIC.doctor.title,
   clinicName: CLINIC.name,
   address: CLINIC.address.full,
   phone: CLINIC.phone.display,
+  regNo: '',
 };
+
+export const LETTERHEAD_LIMITS: Record<keyof Letterhead, number> = {
+  doctorName: 80,
+  qualification: 200,
+  clinicName: 120,
+  address: 300,
+  phone: 40,
+  regNo: 60,
+};
+
+/** Merges any partial/untrusted input onto the defaults, trims and caps every field. */
+export function normalizeLetterhead(input: unknown): Letterhead {
+  const src = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>;
+  const out = { ...CLINIC_INFO };
+  (Object.keys(LETTERHEAD_LIMITS) as (keyof Letterhead)[]).forEach((key) => {
+    const v = src[key];
+    if (typeof v === 'string') {
+      out[key] = v.replace(/\r/g, '').trim().slice(0, LETTERHEAD_LIMITS[key]);
+    }
+  });
+  return out;
+}
 
 export function emptyMedicine(): PrescriptionMedicine {
   return {
@@ -91,7 +125,7 @@ export function describeTiming(t: PrescriptionMedicine['timing']): string {
 }
 
 /** Returns a complete, self-contained HTML document (inline CSS, table layout). */
-export function renderPrescriptionHtml(rx: Prescription): string {
+export function renderPrescriptionHtml(rx: Prescription, lh: Letterhead = CLINIC_INFO): string {
   const meds = rx.medicines.filter((m) => m.name.trim());
 
   const rows = meds
@@ -128,12 +162,14 @@ export function renderPrescriptionHtml(rx: Prescription): string {
   <table width="100%" cellpadding="0" cellspacing="0" style="border-bottom:3px solid #565acf;padding-bottom:10px;">
     <tr>
       <td style="vertical-align:top;">
-        <div style="font-size:22px;font-weight:700;color:#3730a3;">${escapeHtml(CLINIC_INFO.doctorName)}</div>
-        <div style="font-size:11.5px;color:#4b5563;margin-top:3px;letter-spacing:0.3px;">${escapeHtml(CLINIC_INFO.qualification)}</div>
-        <div style="font-size:12px;color:#ea580c;font-weight:600;margin-top:2px;">${escapeHtml(CLINIC_INFO.clinicName)}</div>
+        <div style="font-size:22px;font-weight:700;color:#3730a3;">${escapeHtml(lh.doctorName)}</div>
+        <div style="font-size:11.5px;color:#4b5563;margin-top:3px;letter-spacing:0.3px;">${escapeHtml(lh.qualification)}</div>${
+          lh.regNo ? `<div style="font-size:11.5px;color:#4b5563;margin-top:2px;">Reg. No.: ${escapeHtml(lh.regNo)}</div>` : ''
+        }
+        <div style="font-size:12px;color:#ea580c;font-weight:600;margin-top:2px;">${escapeHtml(lh.clinicName)}</div>
       </td>
       <td style="vertical-align:top;text-align:right;font-size:12px;color:#4b5563;line-height:1.5;">
-        ${escapeHtml(CLINIC_INFO.address)}<br/>Phone: ${escapeHtml(CLINIC_INFO.phone)}
+        ${nl2br(lh.address)}${lh.phone ? `<br/>Phone: ${escapeHtml(lh.phone)}` : ''}
       </td>
     </tr>
   </table>
@@ -180,9 +216,9 @@ export function renderPrescriptionHtml(rx: Prescription): string {
 
   <table width="100%" cellpadding="0" cellspacing="0" style="margin-top:44px;">
     <tr>
-      <td style="font-size:11px;color:#9ca3af;vertical-align:bottom;">This prescription was issued by ${escapeHtml(CLINIC_INFO.clinicName)}.<br/>Take medicines only as directed.</td>
+      <td style="font-size:11px;color:#9ca3af;vertical-align:bottom;">This prescription was issued by ${escapeHtml(lh.clinicName)}.<br/>Take medicines only as directed.</td>
       <td style="text-align:right;vertical-align:bottom;">
-        <div style="display:inline-block;border-top:1px solid #9ca3af;padding-top:4px;min-width:170px;text-align:center;font-size:12px;color:#374151;">${escapeHtml(CLINIC_INFO.doctorName)}</div>
+        <div style="display:inline-block;border-top:1px solid #9ca3af;padding-top:4px;min-width:170px;text-align:center;font-size:12px;color:#374151;">${escapeHtml(lh.doctorName)}</div>
       </td>
     </tr>
   </table>

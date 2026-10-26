@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyAdminRequest } from '@/lib/adminAuth';
 import { getPrescriptionById } from '@/lib/prescriptions';
-import { CLINIC_INFO, formatRxDate } from '@/lib/prescriptionTemplate';
+import { formatRxDate } from '@/lib/prescriptionTemplate';
 import { generatePrescriptionPdf, prescriptionFileName } from '@/lib/prescriptionPdf';
+import { getLetterhead } from '@/lib/letterhead';
 import { sendWhatsAppPdf, WhatsAppNotConnectedError } from '@/lib/whatsapp';
 
 export const runtime = 'nodejs';
@@ -38,14 +39,15 @@ export async function POST(
     }
     const phone = (body.phone || prescription.patientPhone || '').trim();
 
-    const pdfBytes = await generatePrescriptionPdf(prescription);
+    const lh = await getLetterhead();
+    const pdfBytes = await generatePrescriptionPdf(prescription, lh);
     const dateLabel = formatRxDate(prescription.date);
 
     const caption =
       `Hello ${prescription.patientName},\n\n` +
-      `Your prescription dated ${dateLabel} from ${CLINIC_INFO.doctorName} ` +
-      `(${CLINIC_INFO.clinicName}) is attached.\n\n` +
-      `Please take the medicines exactly as written. For any questions, call ${CLINIC_INFO.phone}.`;
+      `Your prescription dated ${dateLabel} from ${lh.doctorName} ` +
+      `(${lh.clinicName}) is attached.\n\n` +
+      `Please take the medicines exactly as written. For any questions, call ${lh.phone}.`;
 
     const { to } = await sendWhatsAppPdf({
       phone,

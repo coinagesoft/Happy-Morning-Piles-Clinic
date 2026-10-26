@@ -94,7 +94,7 @@ export default async function NewsDetailPage({ params }: NewsDetailPageProps) {
             {/* Key Takeaways Box */}
             <div className="key-takeaways-box">
               <div className="takeaways-header">
-                <span className="takeaways-icon">&#x2728;</span>
+                {/* <span className="takeaways-icon">&#x2728;</span> */}
                 <h3>Key Takeaways</h3>
               </div>
               <ul className="takeaways-list">

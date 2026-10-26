@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { verifyAdminRequest } from '@/lib/adminAuth';
 import { getPrescriptionById } from '@/lib/prescriptions';
 import { generatePrescriptionPdf, prescriptionFileName } from '@/lib/prescriptionPdf';
+import { getLetterhead } from '@/lib/letterhead';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -24,7 +25,7 @@ export async function GET(
       return NextResponse.json({ error: 'Prescription not found. Save it first.' }, { status: 404 });
     }
 
-    const bytes = await generatePrescriptionPdf(prescription);
+    const bytes = await generatePrescriptionPdf(prescription, await getLetterhead());
     return new NextResponse(Buffer.from(bytes), {
       status: 200,
       headers: {

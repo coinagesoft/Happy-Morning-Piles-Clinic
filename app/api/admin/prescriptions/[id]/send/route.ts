@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyAdminRequest } from '@/lib/adminAuth';
 import { getPrescriptionById, markPrescriptionEmailed } from '@/lib/prescriptions';
-import { CLINIC_INFO, formatRxDate, escapeHtml } from '@/lib/prescriptionTemplate';
+import { formatRxDate, escapeHtml } from '@/lib/prescriptionTemplate';
 import { generatePrescriptionPdf, prescriptionFileName } from '@/lib/prescriptionPdf';
+import { getLetterhead } from '@/lib/letterhead';
 import { sendHtmlEmail, isMailerConfigured } from '@/lib/mailer';
 import { DOCTOR_EMAIL } from '@/lib/google';
 
@@ -54,22 +55,23 @@ export async function POST(
       return NextResponse.json({ error: 'A valid recipient email is required.' }, { status: 400 });
     }
 
-    const pdfBytes = await generatePrescriptionPdf(prescription);
+    const lh = await getLetterhead();
+    const pdfBytes = await generatePrescriptionPdf(prescription, lh);
     const fileName = prescriptionFileName(prescription);
     const dateLabel = formatRxDate(prescription.date);
 
     const html = `<div style="font-family:Arial,Helvetica,sans-serif;color:#1f2937;font-size:14px;line-height:1.6;max-width:560px;">
   <p>Dear ${escapeHtml(prescription.patientName)},</p>
-  <p>Thank you for consulting <strong>${escapeHtml(CLINIC_INFO.doctorName)}</strong>. Your prescription dated <strong>${escapeHtml(dateLabel)}</strong> is attached to this email as a PDF. You can save it or print it whenever you need.</p>
-  <p>Please take the medicines exactly as written in the prescription. If you have any questions, just reply to this email or call us on ${escapeHtml(CLINIC_INFO.phone)}.</p>
-  <p style="margin-top:22px;">Warm regards,<br/><strong>${escapeHtml(CLINIC_INFO.doctorName)}</strong><br/>${escapeHtml(CLINIC_INFO.clinicName)}<br/><span style="color:#6b7280;font-size:12px;">${escapeHtml(CLINIC_INFO.address)}</span></p>
+  <p>Thank you for consulting <strong>${escapeHtml(lh.doctorName)}</strong>. Your prescription dated <strong>${escapeHtml(dateLabel)}</strong> is attached to this email as a PDF. You can save it or print it whenever you need.</p>
+  <p>Please take the medicines exactly as written in the prescription. If you have any questions, just reply to this email or call us on ${escapeHtml(lh.phone)}.</p>
+  <p style="margin-top:22px;">Warm regards,<br/><strong>${escapeHtml(lh.doctorName)}</strong><br/>${escapeHtml(lh.clinicName)}<br/><span style="color:#6b7280;font-size:12px;">${escapeHtml(lh.address)}</span></p>
 </div>`;
 
-    const text = `Dear ${prescription.patientName},\n\nYour prescription dated ${dateLabel} from ${CLINIC_INFO.doctorName} is attached as a PDF.\n\nPlease take the medicines exactly as written. For any questions, reply to this email or call ${CLINIC_INFO.phone}.\n\n${CLINIC_INFO.doctorName}\n${CLINIC_INFO.clinicName}`;
+    const text = `Dear ${prescription.patientName},\n\nYour prescription dated ${dateLabel} from ${lh.doctorName} is attached as a PDF.\n\nPlease take the medicines exactly as written. For any questions, reply to this email or call ${lh.phone}.\n\n${lh.doctorName}\n${lh.clinicName}`;
 
     await sendHtmlEmail({
       to,
-      subject: `Your prescription from ${CLINIC_INFO.doctorName} (${dateLabel})`,
+      subject: `Your prescription from ${lh.doctorName} (${dateLabel})`,
       html,
       text,
       replyTo: DOCTOR_EMAIL,

@@ -203,6 +203,14 @@ export async function ensureDatabaseSchema(): Promise<void> {
   `);
 
   await pool.execute(`
+    CREATE TABLE IF NOT EXISTS prescription_letterhead (
+      id INT PRIMARY KEY DEFAULT 1,
+      data TEXT,
+      updated_at VARCHAR(64) NOT NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  `);
+
+  await pool.execute(`
     CREATE TABLE IF NOT EXISTS medicines (
       id VARCHAR(64) PRIMARY KEY,
       name VARCHAR(255) NOT NULL,

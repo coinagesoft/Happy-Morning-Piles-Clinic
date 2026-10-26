@@ -2,8 +2,15 @@
    (used by app/treatments/page.tsx). Uses the colour tokens from globals.css. */
 
 /* ---------- Comparison table ---------- */
-.compare-section {
-  padding-top: 8px;
+/* Balanced spacing: even room above (under the stats bar) and a tighter gap below,
+   because the next section already has its own top padding. */
+.meditro-section.compare-section {
+  padding-top: 72px;
+  padding-bottom: 20px;
+}
+
+.compare-section .meditro-section-header {
+  margin-bottom: 36px;
 }
 
 .compare-table-wrap {
@@ -53,11 +60,24 @@
   color: var(--ink);
 }
 
-.compare-note {
-  text-align: center;
+.compare-section .compare-note {
+  max-width: none; /* the global `p { max-width: 64ch }` was squeezing it into a narrow block */
+  width: 100%;
+  margin: 14px 0 0;
+  padding: 0 6px;
+  text-align: right;
   font-size: 13.5px;
   color: var(--muted);
-  margin-top: 14px;
+}
+
+@media (max-width: 760px) {
+  .meditro-section.compare-section {
+    padding-top: 48px;
+    padding-bottom: 12px;
+  }
+  .compare-section .meditro-section-header {
+    margin-bottom: 26px;
+  }
 }
 
 /* ---------- Visit steps image ---------- */
