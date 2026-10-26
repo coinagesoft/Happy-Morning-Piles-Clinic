@@ -13,6 +13,12 @@ const COVERS: Record<string, string> = {
   Fistula: '/assets/news/cover-fistula.png',
   Symptoms: '/assets/news/cover-symptoms.png',
   Treatment: '/assets/news/cover-treatment.png',
+  Causes: '/assets/news/cover-causes.png',
+  Fissure: '/assets/news/cover-fissure.png',
+  Lifestyle: '/assets/news/cover-lifestyle.png',
+  Pilonidal: '/assets/news/cover-pilonidal.png',
+  Guidance: '/assets/news/cover-guidance.png',
+  Visit: '/assets/news/cover-visit.png',
 };
 
 export default function ArticleCover({ category, title, size = 'card' }: Props) {

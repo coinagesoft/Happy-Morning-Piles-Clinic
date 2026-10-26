@@ -121,7 +121,7 @@ export default function Header() {
                 Booking
               </Link>
             </li>
-            <li>
+            {/* <li>
               <Link
                 href="/admin"
                 className={pathname?.startsWith('/admin') ? 'active' : ''}
@@ -129,7 +129,7 @@ export default function Header() {
               >
                 Admin Panel
               </Link>
-            </li>
+            </li> */}
           </ul>
 
           <div className="header-actions-group">

@@ -5,6 +5,7 @@ import { notFound } from 'next/navigation';
 import type { Metadata } from 'next';
 import { NEWS_ARTICLES } from '@/lib/newsData';
 import { CLINIC } from '@/lib/clinicInfo';
+import '@/components/article-rich.css';
 
 interface NewsDetailPageProps {
   params: Promise<{
@@ -111,9 +112,42 @@ export default async function NewsDetailPage({ params }: NewsDetailPageProps) {
               {article.contentSections.map((section, idx) => (
                 <div key={idx} className="article-section-block">
                   <h2>{section.heading}</h2>
+
+                  {section.image && (
+                    <figure className="article-figure">
+                      <Image
+                        src={section.image.src}
+                        alt={section.image.alt}
+                        width={1600}
+                        height={900}
+                        sizes="(max-width: 900px) 100vw, 800px"
+                        className="article-figure-img"
+                      />
+                      {section.image.caption && (
+                        <figcaption>{section.image.caption}</figcaption>
+                      )}
+                    </figure>
+                  )}
+
                   {section.paragraphs.map((p, pIdx) => (
                     <p key={pIdx}>{p}</p>
                   ))}
+
+                  {section.bullets && section.bullets.length > 0 && (
+                    <ul className="article-bullets">
+                      {section.bullets.map((b, bIdx) => (
+                        <li key={bIdx}>{b}</li>
+                      ))}
+                    </ul>
+                  )}
+
+                  {section.steps && section.steps.length > 0 && (
+                    <ol className="article-steps">
+                      {section.steps.map((s, sIdx) => (
+                        <li key={sIdx}>{s}</li>
+                      ))}
+                    </ol>
+                  )}
 
                   {section.callout && (
                     <aside className="article-callout-card" aria-label="Clinical highlight">
@@ -124,6 +158,25 @@ export default async function NewsDetailPage({ params }: NewsDetailPageProps) {
                 </div>
               ))}
             </div>
+
+            {/* FAQs */}
+            {article.faqs && article.faqs.length > 0 && (
+              <section className="article-faq-block" aria-label="Frequently asked questions">
+                <h2>Frequently Asked Questions</h2>
+                {article.faqs.map((f, i) => (
+                  <details key={i} className="article-faq-item">
+                    <summary>{f.q}</summary>
+                    <p>{f.a}</p>
+                  </details>
+                ))}
+              </section>
+            )}
+
+            {/* Disclaimer */}
+            <p className="article-disclaimer">
+              This guide is for general information and is not a substitute for a medical examination.
+              {' '}{CLINIC.advisory}
+            </p>
 
             {/* Navigation back to all articles */}
             <div className="article-bottom-nav">

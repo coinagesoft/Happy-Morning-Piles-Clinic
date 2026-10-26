@@ -1,0 +1,308 @@
+/* In-depth treatment guide, comparison table and visit steps
+   (used by app/treatments/page.tsx). Uses the colour tokens from globals.css. */
+
+/* ---------- Comparison table ---------- */
+.compare-section {
+  padding-top: 8px;
+}
+
+.compare-table-wrap {
+  overflow-x: auto;
+  border: 1.5px solid var(--line);
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: var(--shadow-soft);
+}
+
+.compare-table {
+  width: 100%;
+  min-width: 760px;
+  border-collapse: collapse;
+  font-size: 14.5px;
+  line-height: 1.55;
+}
+
+.compare-table th,
+.compare-table td {
+  padding: 14px 18px;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--line);
+}
+
+.compare-table thead th {
+  background: var(--primary);
+  color: #fff;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.compare-table tbody th {
+  background: var(--secondary-light);
+  color: #C2410C;
+  font-weight: 800;
+  width: 150px;
+}
+
+.compare-table tbody tr:last-child th,
+.compare-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.compare-table td {
+  color: var(--ink);
+}
+
+.compare-note {
+  text-align: center;
+  font-size: 13.5px;
+  color: var(--muted);
+  margin-top: 14px;
+}
+
+/* ---------- Visit steps image ---------- */
+.visit-steps-section {
+  padding-top: 0;
+}
+
+.visit-steps-figure {
+  margin: 0;
+  border: 1.5px solid var(--line);
+  border-radius: 20px;
+  overflow: hidden;
+  box-shadow: var(--shadow-soft);
+  background: #fff8f3;
+}
+
+.visit-steps-figure img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* ---------- In-depth drawer ---------- */
+.indepth-drawer {
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+}
+
+.indepth-figure {
+  margin: 0;
+  border: 1.5px solid var(--line);
+  border-radius: 16px;
+  overflow: hidden;
+  background: #fff8f3;
+}
+
+.indepth-figure img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.indepth-figure figcaption {
+  padding: 10px 16px 12px;
+  font-size: 13px;
+  color: var(--muted);
+  background: #fff;
+  border-top: 1px solid var(--line);
+}
+
+.indepth-block h5,
+.indepth-col h5,
+.indepth-steps h5,
+.indepth-faqs h5,
+.indepth-related h5,
+.indepth-types h5 {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--primary-dark);
+  margin: 0 0 12px;
+}
+
+.indepth-block p {
+  font-size: 14.5px;
+  line-height: 1.75;
+  color: var(--ink);
+  margin: 0 0 12px;
+}
+
+.indepth-types-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 14px;
+}
+
+.indepth-type-card {
+  background: #fff;
+  border: 1.5px solid var(--line);
+  border-radius: 14px;
+  padding: 16px 18px;
+}
+
+.indepth-type-card strong {
+  display: block;
+  color: #C2410C;
+  font-size: 15px;
+  margin-bottom: 6px;
+}
+
+.indepth-type-card p {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.65;
+  color: var(--ink);
+}
+
+.indepth-two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+.indepth-col {
+  background: #fff;
+  border: 1.5px solid var(--line);
+  border-radius: 14px;
+  padding: 18px 20px;
+}
+
+.indepth-col ul,
+.indepth-alert ul,
+.indepth-faqs ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.indepth-col li,
+.indepth-alert li {
+  position: relative;
+  padding-left: 20px;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--ink);
+}
+
+.indepth-col li::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 8px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--secondary);
+}
+
+.indepth-alert {
+  background: #FFF5F2;
+  border: 1.5px solid #FFD8CE;
+  border-radius: 14px;
+  padding: 18px 20px;
+}
+
+.indepth-alert h5 {
+  color: #C2410C;
+  margin: 0 0 12px;
+}
+
+.indepth-alert li::before {
+  content: "!";
+  position: absolute;
+  left: 0;
+  top: 0;
+  font-weight: 800;
+  color: #C23048;
+}
+
+.indepth-steps ol {
+  list-style: none;
+  counter-reset: indepth-step;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.indepth-steps li {
+  counter-increment: indepth-step;
+  position: relative;
+  padding: 4px 0 4px 46px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--ink);
+}
+
+.indepth-steps li::before {
+  content: counter(indepth-step);
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: #fff;
+  font-weight: 800;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.indepth-faq-item {
+  background: #fff;
+  border: 1.5px solid var(--line);
+  border-radius: 12px;
+  margin-bottom: 8px;
+}
+
+.indepth-faq-item summary {
+  cursor: pointer;
+  padding: 13px 16px;
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--primary-dark);
+}
+
+.indepth-faq-item p {
+  margin: 0;
+  padding: 0 16px 14px;
+  font-size: 13.5px;
+  line-height: 1.65;
+  color: var(--ink);
+}
+
+.indepth-related-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.indepth-related-links a {
+  display: inline-block;
+  padding: 9px 16px;
+  border-radius: 999px;
+  background: var(--primary-light);
+  color: var(--primary);
+  font-size: 13.5px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.indepth-related-links a:hover {
+  background: var(--primary);
+  color: #fff;
+}
+
+@media (max-width: 768px) {
+  .indepth-two-col {
+    grid-template-columns: 1fr;
+  }
+}

@@ -1,9 +1,12 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import Image from 'next/image';
 import Link from 'next/link';
 import { TREATMENTS } from '@/lib/treatmentsData';
+import { NEWS_ARTICLES } from '@/lib/newsData';
 import { CLINIC } from '@/lib/clinicInfo';
+import '@/components/treatment-indepth.css';
 
 export default function TreatmentsPage() {
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
@@ -13,6 +16,15 @@ export default function TreatmentsPage() {
     selectedCategory === 'all'
       ? TREATMENTS
       : TREATMENTS.filter((t) => t.category === selectedCategory);
+
+  // Open the in-depth guide when the page is opened with a link like /treatments#fistula
+  useEffect(() => {
+    const id = window.location.hash.replace('#', '');
+    if (id && TREATMENTS.some((t) => t.id === id)) {
+      setExpandedId(id);
+      setTimeout(() => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' }), 100);
+    }
+  }, []);
 
   const toggleExpand = (id: string) => {
     setExpandedId((prev) => (prev === id ? null : id));
@@ -73,6 +85,67 @@ export default function TreatmentsPage() {
               <small>Scarless treatment</small>
             </div>
           </div>
+        </div>
+      </section>
+
+      {/* 2b. KNOW THE DIFFERENCE */}
+      <section className="meditro-section compare-section">
+        <div className="container">
+          <div className="meditro-section-header">
+            <span className="meditro-badge-orange">Know the Difference</span>
+            <h2>Piles, Fissure or Fistula?</h2>
+            <p className="section-lead-p">
+              The three problems can feel alike. This table shows how they usually differ.
+            </p>
+          </div>
+
+          <div className="compare-table-wrap">
+            <table className="compare-table">
+              <thead>
+                <tr>
+                  <th></th>
+                  <th>Piles</th>
+                  <th>Fissure</th>
+                  <th>Fistula</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <th>What it is</th>
+                  <td>Swollen veins and cushions in the lower rectum and anus</td>
+                  <td>A small tear in the lining of the anal canal</td>
+                  <td>A tunnel between the anal canal and the skin</td>
+                </tr>
+                <tr>
+                  <th>Typical pain</th>
+                  <td>Often painless unless swollen or external</td>
+                  <td>Sharp pain during and after stool, with burning</td>
+                  <td>Pain and swelling that may ease when discharge comes out</td>
+                </tr>
+                <tr>
+                  <th>Bleeding</th>
+                  <td>Bright red, on paper, stool or in the bowl</td>
+                  <td>A thin streak of blood</td>
+                  <td>Blood-stained or pus discharge</td>
+                </tr>
+                <tr>
+                  <th>Other signs</th>
+                  <td>Lump near the anus, itching, a feeling of fullness</td>
+                  <td>Fear of passing stool, constipation</td>
+                  <td>An opening on the skin near the anus, repeated discharge</td>
+                </tr>
+                <tr>
+                  <th>At this clinic</th>
+                  <td>Ayurvedic* injection therapy, OPD, no cuts</td>
+                  <td>Ayurvedic* injection-based, without operation</td>
+                  <td>Ayurvedic* injection / applicators, about 20 minutes, no surgery, laser or ksharsutra</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p className="compare-note">
+            This is a general guide. Only an examination can confirm which condition you have.
+          </p>
         </div>
       </section>
 
@@ -150,18 +223,109 @@ export default function TreatmentsPage() {
                   </div>
 
                   {isExpanded && (
-                    <div className="treatment-expanded-drawer">
-                      <div className="expanded-grid">
-                        <div className="expanded-highlights">
-                          <h5>Treatment highlights:</h5>
+                    <div className="treatment-expanded-drawer indepth-drawer">
+                      <figure className="indepth-figure">
+                        <Image
+                          src={treatment.image.src}
+                          alt={treatment.image.alt}
+                          width={1600}
+                          height={900}
+                          sizes="(max-width: 900px) 100vw, 900px"
+                        />
+                        <figcaption>{treatment.image.caption}</figcaption>
+                      </figure>
+
+                      <div className="indepth-block">
+                        <h5>Understanding {treatment.name.split('(')[0].trim()}</h5>
+                        {treatment.overview.map((para) => (
+                          <p key={para}>{para}</p>
+                        ))}
+                      </div>
+
+                      {treatment.types && (
+                        <div className="indepth-types">
+                          <h5>Types and stages</h5>
+                          <div className="indepth-types-grid">
+                            {treatment.types.map((t) => (
+                              <div key={t.title} className="indepth-type-card">
+                                <strong>{t.title}</strong>
+                                <p>{t.text}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="indepth-two-col">
+                        <div className="indepth-col">
+                          <h5>Common causes</h5>
                           <ul>
-                            {treatment.highlights.map((h) => (
-                              <li key={h}>
-                                <span className="check-icon">&#x2713;</span>
-                                {h}
-                              </li>
+                            {treatment.causes.map((c) => (
+                              <li key={c}>{c}</li>
                             ))}
                           </ul>
+                        </div>
+                        <div className="indepth-col">
+                          <h5>Simple care at home</h5>
+                          <ul>
+                            {treatment.selfCare.map((c) => (
+                              <li key={c}>{c}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      </div>
+
+                      <div className="indepth-alert">
+                        <h5>When to see a doctor</h5>
+                        <ul>
+                          {treatment.whenToSeeDoctor.map((w) => (
+                            <li key={w}>{w}</li>
+                          ))}
+                        </ul>
+                      </div>
+
+                      <div className="indepth-steps">
+                        <h5>What to expect at the clinic</h5>
+                        <ol>
+                          {treatment.whatToExpect.map((s) => (
+                            <li key={s}>{s}</li>
+                          ))}
+                        </ol>
+                      </div>
+
+                      <div className="expanded-highlights">
+                        <h5>Treatment highlights:</h5>
+                        <ul>
+                          {treatment.highlights.map((h) => (
+                            <li key={h}>
+                              <span className="check-icon">&#x2713;</span>
+                              {h}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+
+                      <div className="indepth-faqs">
+                        <h5>Quick questions</h5>
+                        {treatment.faqs.map((f) => (
+                          <details key={f.q} className="indepth-faq-item">
+                            <summary>{f.q}</summary>
+                            <p>{f.a}</p>
+                          </details>
+                        ))}
+                      </div>
+
+                      <div className="indepth-related">
+                        <h5>Read more</h5>
+                        <div className="indepth-related-links">
+                          {treatment.relatedGuides
+                            .map((slug) => NEWS_ARTICLES.find((a) => a.slug === slug))
+                            .filter((a): a is (typeof NEWS_ARTICLES)[number] => Boolean(a))
+                            .map((a) => (
+                              <Link key={a.slug} href={`/news/${a.slug}`}>
+                                {a.title}
+                              </Link>
+                            ))}
                         </div>
                       </div>
                     </div>
@@ -174,7 +338,7 @@ export default function TreatmentsPage() {
                       onClick={() => toggleExpand(treatment.id)}
                       aria-expanded={isExpanded}
                     >
-                      <span>{isExpanded ? 'Hide Treatment Details' : 'View Treatment Highlights'}</span>
+                      <span>{isExpanded ? 'Hide In-Depth Guide' : 'Read In-Depth Guide'}</span>
                       <span className={`toggle-chevron ${isExpanded ? 'rotated' : ''}`}>&#x25BC;</span>
                     </button>
 
@@ -192,6 +356,25 @@ export default function TreatmentsPage() {
           <p className="section-lead-p" style={{ textAlign: 'center', marginTop: '28px' }}>
             {CLINIC.advisory}
           </p>
+        </div>
+      </section>
+
+      {/* 3b. YOUR VISIT */}
+      <section className="meditro-section visit-steps-section">
+        <div className="container">
+          <div className="meditro-section-header">
+            <span className="meditro-badge-orange">Your Visit</span>
+            <h2>How Treatment Works, Step by Step</h2>
+          </div>
+          <figure className="visit-steps-figure">
+            <Image
+              src="/assets/diagrams/infographic-your-visit.png"
+              alt="Four steps: book, examination, treatment plan and OPD treatment"
+              width={1600}
+              height={900}
+              sizes="(max-width: 1200px) 100vw, 1200px"
+            />
+          </figure>
         </div>
       </section>
 

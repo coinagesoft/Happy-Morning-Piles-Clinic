@@ -1,0 +1,142 @@
+/* Rich article content: images, bullet lists, numbered steps, FAQs, disclaimer
+   (used by app/news/[slug]/page.tsx). Uses the colour tokens from globals.css. */
+
+.article-figure {
+  margin: 0 0 22px;
+  border: 1.5px solid var(--line);
+  border-radius: 18px;
+  overflow: hidden;
+  background: #fff8f3;
+}
+
+.article-figure .article-figure-img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.article-figure figcaption {
+  padding: 10px 16px 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+  background: #fff;
+  border-top: 1px solid var(--line);
+}
+
+.article-bullets,
+.article-steps {
+  margin: 0 0 18px;
+  padding: 0;
+  list-style: none;
+}
+
+.article-bullets li {
+  position: relative;
+  padding: 8px 0 8px 30px;
+  line-height: 1.65;
+}
+
+.article-bullets li::before {
+  content: "";
+  position: absolute;
+  left: 6px;
+  top: 17px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--secondary);
+}
+
+.article-steps {
+  counter-reset: article-step;
+}
+
+.article-steps li {
+  position: relative;
+  counter-increment: article-step;
+  padding: 10px 0 10px 50px;
+  line-height: 1.65;
+}
+
+.article-steps li::before {
+  content: counter(article-step);
+  position: absolute;
+  left: 0;
+  top: 8px;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: #fff;
+  font-weight: 800;
+  font-size: 15px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.article-faq-block {
+  margin: 8px 0 32px;
+}
+
+.article-faq-block h2 {
+  font-family: var(--serif);
+  font-size: 24px;
+  font-weight: 800;
+  color: var(--primary-dark);
+  margin-bottom: 14px;
+}
+
+.article-faq-item {
+  border: 1.5px solid var(--line);
+  border-radius: 14px;
+  background: #fff;
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+
+.article-faq-item summary {
+  cursor: pointer;
+  padding: 16px 20px;
+  font-weight: 700;
+  color: var(--primary-dark);
+  list-style: none;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.article-faq-item summary::-webkit-details-marker {
+  display: none;
+}
+
+.article-faq-item summary::after {
+  content: "+";
+  font-size: 22px;
+  line-height: 1;
+  color: var(--secondary);
+  flex-shrink: 0;
+}
+
+.article-faq-item[open] summary::after {
+  content: "\2212";
+}
+
+.article-faq-item p {
+  margin: 0;
+  padding: 0 20px 18px;
+  line-height: 1.7;
+  color: #334155;
+}
+
+.article-disclaimer {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--muted);
+  background: var(--secondary-light);
+  border-radius: 12px;
+  padding: 14px 18px;
+  margin-bottom: 28px;
+}

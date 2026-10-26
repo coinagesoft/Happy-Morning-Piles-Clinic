@@ -66,7 +66,7 @@ export default function Footer() {
               <li><Link href="/news">Health Guides</Link></li>
               <li><Link href="/appointment">Book Appointment</Link></li>
               <li><Link href="/#process">How Treatment Works</Link></li>
-              <li><Link href="/admin">Doctor Admin Portal</Link></li>
+              <li><Link href="/admin">Login</Link></li>
             </ul>
           </div>
 
