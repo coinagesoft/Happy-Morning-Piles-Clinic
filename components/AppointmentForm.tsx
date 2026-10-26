@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import CalendarPicker from './CalendarPicker';
 import { toast } from '@/components/ui/Toast';
 import { useClinicSettings } from '@/lib/useClinicSettings';
+import './booking.css';
 
 interface FormData {
   fullName: string;
@@ -344,21 +345,21 @@ export default function AppointmentForm() {
     switch (name) {
       case 'fullName':
         if (!trimmed) return 'Please enter your full name.';
-        if (trimmed.length < 3) return 'Your name should be at least 3 characters.';
-        if (!/^[A-Za-z][A-Za-z .'-]*$/.test(trimmed)) return 'Please use letters and spaces only.';
+        if (trimmed.length < 3) return 'At least 3 characters.';
+        if (!/^[A-Za-z][A-Za-z .'-]*$/.test(trimmed)) return 'Use letters and spaces only.';
         return '';
 
       case 'phone': {
         if (!trimmed) return 'Please enter your phone number.';
         if (!/^[6-9]\d{9}$/.test(trimmed))
-          return 'Please enter a valid 10-digit mobile number starting with 6, 7, 8, or 9.';
+          return 'Enter a valid 10-digit mobile number.';
         return '';
       }
 
       case 'email':
         if (!trimmed) return 'Please enter your email address.';
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(trimmed)) {
-          return 'Please enter a valid email, for example name@example.com.';
+          return 'Enter a valid email, e.g. name@example.com.';
         }
         return '';
 
@@ -444,6 +445,20 @@ export default function AppointmentForm() {
         weekday: 'long',
         day: 'numeric',
         month: 'long',
+        year: 'numeric',
+      });
+    } catch {
+      return '';
+    }
+  }, [formData.date, isSunday]);
+
+  const shortDate = React.useMemo(() => {
+    if (!formData.date || isSunday) return '';
+    try {
+      return new Date(`${formData.date}T00:00:00`).toLocaleDateString('en-IN', {
+        weekday: 'short',
+        day: 'numeric',
+        month: 'short',
         year: 'numeric',
       });
     } catch {
@@ -698,371 +713,335 @@ export default function AppointmentForm() {
   };
 
   const isBusy = isCheckingSlot || isProcessingPayment || isSubmitting;
+  const dateIsBookable =
+    !!formData.date && !isSunday && !isDoctorDateBlocked && (!tomorrowIso || formData.date >= tomorrowIso);
+
+  const slotNote = !formData.date
+    ? 'Select a date to see available times.'
+    : tomorrowIso && formData.date < tomorrowIso
+    ? 'Same-day and past dates cannot be booked online.'
+    : isSunday
+    ? 'The clinic is closed on Sunday. Please choose another date.'
+    : isDoctorDateBlocked
+    ? `Doctor is unavailable on ${shortDate || formData.date} (${doctorBlockReason || 'on leave'}).`
+    : isLoadingSlots
+    ? 'Checking real-time availability...'
+    : `Available times on ${shortDate}`;
+
+  const fieldCls = (name: keyof FormData, extra = '') =>
+    `bk-field ${extra} ${errors[name] ? 'invalid' : ''}`.trim();
 
   return (
-    <div>
-      {/* Booking confirmation box */}
-      {confirmedBooking && (
-        <div
-          className="success-box"
-          id="success-box"
-          role="status"
-          tabIndex={-1}
-          ref={successBoxRef}
-        >
-          <div className="success-payment-pill">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-              <polyline points="22 4 12 14.01 9 11.01" />
-            </svg>
+    <div className="bk">
+      <div className="bk-card" ref={paymentStepRef}>
+        {/* Booking confirmation (replaces the form inside the same card so the page never grows) */}
+        {confirmedBooking && (
+          <div className="bk-success" id="success-box" role="status" tabIndex={-1} ref={successBoxRef}>
+            <div className="bk-success-inner">
+              <div className="success-payment-pill">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                  <polyline points="22 4 12 14.01 9 11.01" />
+                </svg>
+                <span>
+                  ₹{confirmedBooking.amount || CONSULTATION_FEE_INR} Paid Successfully
+                  {confirmedBooking.paymentId ? ` • Payment ID: ${confirmedBooking.paymentId}` : ''}
+                </span>
+              </div>
+              <h2>Appointment confirmed!</h2>
+              <p>
+                Thank you, <strong>{confirmedBooking.fullName}</strong>. Your consultation has been scheduled for{' '}
+                <strong>{confirmedBooking.date}</strong> at{' '}
+                <strong>{SLOTS.find((s) => s.value === confirmedBooking.time)?.label || confirmedBooking.time}</strong>.
+              </p>
+              <div className="notice-success">
+                Your consultation has been booked successfully! The appointment with Google Meet video call has been
+                scheduled on your calendar.
+              </div>
+              <button type="button" className="bk-pay bk-pay-secondary" onClick={() => setConfirmedBooking(null)}>
+                Book another appointment
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div className="bk-top">
+          <div>
+            <h2>Schedule your consultation</h2>
+            <p>Pick a date and time first, then tell us a little about you.</p>
+          </div>
+          <div className="bk-top-meta">
             <span>
-              ₹{confirmedBooking.amount || CONSULTATION_FEE_INR} Paid Successfully
-              {confirmedBooking.paymentId ? ` • Payment ID: ${confirmedBooking.paymentId}` : ''}
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10" />
+                <polyline points="12 6 12 12 16 14" />
+              </svg>
+              9:00 AM – 6:00 PM, Mon – Sat
             </span>
-          </div>
-          <h2>Appointment confirmed!</h2>
-          <p>
-            Thank you, <strong>{confirmedBooking.fullName}</strong>. Your consultation has been
-            scheduled for <strong>{confirmedBooking.date}</strong> at{' '}
-            <strong>
-              {SLOTS.find((s) => s.value === confirmedBooking.time)?.label || confirmedBooking.time}
-            </strong>
-            .
-          </p>
-
-          <div className="meet-box">
-            <h3>Google Meet Consultation</h3>
-            <div className="notice-success">
-              Your consultation has been booked successfully! The appointment with Google Meet
-              video call has been scheduled on your calendar.
-            </div>
+            <span className="bk-fee">Consultation fee ₹{CONSULTATION_FEE_INR}</span>
           </div>
         </div>
-      )}
 
-      <div className="form-panel" ref={paymentStepRef}>
-        <div className="form-heading">
-          <h2>Your details</h2>
-          <p>All fields are required except the message.</p>
-        </div>
-        <form
-          id="appointment-form"
-          noValidate
-          ref={formRef}
-          onSubmit={handlePayAndBookSubmit}
-        >
-          <div className="form-grid">
-            {/* Full Name */}
-            <div className={`field full ${errors.fullName ? 'invalid' : ''}`}>
-              <label htmlFor="fullName">Full name</label>
-              <input
-                type="text"
-                id="fullName"
-                name="fullName"
-                autoComplete="name"
-                value={formData.fullName}
-                onChange={handleInputChange}
-                aria-invalid={!!errors.fullName}
-                aria-describedby="fullName-error"
+        <form id="appointment-form" className="bk-form" noValidate ref={formRef} onSubmit={handlePayAndBookSubmit}>
+          <div className="bk-cols">
+            <div className="bk-panel bk-panel-when">
+            {/* 1. DATE */}
+            <section className={`bk-col bk-col-date ${errors.date ? 'invalid' : ''}`} ref={calendarSectionRef}>
+              <header className="bk-col-head">
+                <span className="bk-step">1</span>
+                <div>
+                  <h2>Choose a date</h2>
+                  <p>Mon to Sat, from tomorrow onwards</p>
+                </div>
+              </header>
+
+              <CalendarPicker
+                selectedDate={formData.date}
+                onSelectDate={handleCalendarDateSelect}
+                minDate={tomorrowIso}
                 disabled={isBusy}
+                doctorBlockedDates={doctorBlockedDates}
               />
-              <p className="error-text" id="fullName-error">
-                {errors.fullName}
-              </p>
-            </div>
+              <input type="hidden" name="date" value={formData.date} />
 
-            {/* Phone */}
-            <div className={`field ${errors.phone ? 'invalid' : ''}`}>
-              <label htmlFor="phone">Phone number</label>
-              <input
-                type="tel"
-                id="phone"
-                name="phone"
-                autoComplete="tel"
-                placeholder="10-digit mobile number"
-                inputMode="numeric"
-                maxLength={10}
-                value={formData.phone}
-                onChange={handleInputChange}
-                aria-invalid={!!errors.phone}
-                aria-describedby="phone-error"
-                disabled={isBusy}
-              />
-              <p className="error-text" id="phone-error">
-                {errors.phone}
-              </p>
-            </div>
+              {errors.date && (
+                <p className="bk-col-error" id="date-error">
+                  {errors.date}
+                </p>
+              )}
+            </section>
 
-            {/* Email */}
-            <div className={`field ${errors.email ? 'invalid' : ''}`}>
-              <label htmlFor="email">Email address (for calendar invite)</label>
-              <input
-                type="email"
-                id="email"
-                name="email"
-                autoComplete="email"
-                placeholder="name@example.com"
-                value={formData.email}
-                onChange={handleInputChange}
-                aria-invalid={!!errors.email}
-                aria-describedby="email-error"
-                disabled={isBusy}
-              />
-              <p className="error-text" id="email-error">
-                {errors.email}
-              </p>
-            </div>
+            {/* 2. TIME */}
+            <section className={`bk-col bk-col-time ${errors.time ? 'invalid' : ''}`} ref={slotSectionRef}>
+              <header className="bk-col-head">
+                <span className="bk-step">2</span>
+                <div>
+                  <h2>Choose a time</h2>
+                  <p id="slot-date-note">{slotNote}</p>
+                </div>
+              </header>
+              <input type="hidden" name="time" value={formData.time} />
 
-            {/* Age */}
-            <div className={`field ${errors.age ? 'invalid' : ''}`}>
-              <label htmlFor="age">Age</label>
-              <input
-                type="number"
-                id="age"
-                name="age"
-                min="1"
-                max="120"
-                inputMode="numeric"
-                placeholder="e.g. 30"
-                value={formData.age}
-                onChange={handleInputChange}
-                aria-invalid={!!errors.age}
-                aria-describedby="age-error"
-                disabled={isBusy}
-              />
-              <p className="error-text" id="age-error">
-                {errors.age}
-              </p>
-            </div>
-
-            {/* Reason */}
-            <div className={`field ${errors.reason ? 'invalid' : ''}`}>
-              <label htmlFor="reason">Reason for consultation</label>
-              <select
-                id="reason"
-                name="reason"
-                value={formData.reason}
-                onChange={handleInputChange}
-                aria-invalid={!!errors.reason}
-                aria-describedby="reason-error"
-                disabled={isBusy}
-              >
-                <option value="">Select a reason</option>
-                <option>Piles (Bavasir / Mulvyadh)</option>
-                <option>Fissure</option>
-                <option>Fistula (Bhagandar)</option>
-                <option>Pilonidal Sinus</option>
-                <option>Stomach-Related Ailments</option>
-                <option>Other / General Consultation</option>
-              </select>
-              <p className="error-text" id="reason-error">
-                {errors.reason}
-              </p>
-            </div>
-
-            {/* Unified Date & Time Scheduling Workspace (Side-by-Side to eliminate blank space) */}
-            <div className="field full datetime-booking-workspace">
-              <div className="datetime-booking-grid">
-                {/* 1. Preferred Date Column (Interactive Calendar) */}
-                <div
-                  className={`datetime-col-calendar ${errors.date ? 'invalid' : ''}`}
-                  ref={calendarSectionRef}
-                >
-                  <div className="calendar-field-header">
-                    <label className="calendar-field-label">
-                      Choose Preferred Date <span>(Mon to Sat)</span>
-                    </label>
-                    <p className="calendar-field-desc">
-                      Select an available date from tomorrow onwards. Clinic closed on Sundays.
-                    </p>
+              {dateIsBookable ? (
+                <>
+                  <div className="bk-slots" id="slot-grid">
+                    {SLOTS.map((slot) => {
+                      const isDoctorBlocked = doctorBlockedSlots.includes(slot.value);
+                      const isBooked = serverBookedSlots.includes(slot.value);
+                      const isUnavailable = isBooked || isDoctorBlocked;
+                      const isSelected = formData.time === slot.value;
+                      return (
+                        <button
+                          key={slot.value}
+                          type="button"
+                          className={`bk-slot ${
+                            isDoctorBlocked ? 'is-blocked' : isBooked ? 'is-booked' : 'is-open'
+                          } ${isSelected ? 'is-selected' : ''}`}
+                          disabled={isUnavailable || isBusy}
+                          aria-pressed={isSelected}
+                          aria-label={
+                            isDoctorBlocked
+                              ? `${slot.label} (Doctor Unavailable)`
+                              : isBooked
+                              ? `${slot.label} (Booked)`
+                              : `${slot.label} (Available)`
+                          }
+                          onClick={() => handleSlotSelect(slot.value)}
+                        >
+                          <span className="bk-slot-time">{slot.label}</span>
+                          <span className="bk-slot-tag">
+                            {isSelected ? 'Selected' : isDoctorBlocked ? 'Unavailable' : isBooked ? 'Booked' : 'Available'}
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
+                  <div className="bk-slot-legend">
+                    <span><i className="bkc-dot d-avail" />Available</span>
+                    <span><i className="bkc-dot d-selected" />Selected</span>
+                    <span><i className="bkc-dot d-off" />Booked / blocked</span>
+                  </div>
+                </>
+              ) : (
+                <div className="bk-slots-empty">
+                  <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="4" width="18" height="18" rx="2" />
+                    <line x1="16" y1="2" x2="16" y2="6" />
+                    <line x1="8" y1="2" x2="8" y2="6" />
+                    <line x1="3" y1="10" x2="21" y2="10" />
+                  </svg>
+                  <span>{isDoctorDateBlocked ? 'Doctor unavailable on this date' : 'Pick an available date to see time slots'}</span>
+                </div>
+              )}
 
-                  <CalendarPicker
-                    selectedDate={formData.date}
-                    onSelectDate={handleCalendarDateSelect}
-                    minDate={tomorrowIso}
+              {errors.time && (
+                <p className="bk-col-error" id="time-error">
+                  {errors.time}
+                </p>
+              )}
+            </section>
+
+            </div>
+
+            {/* 3. DETAILS */}
+            <section className="bk-panel bk-panel-details bk-col-details">
+              <header className="bk-col-head">
+                <span className="bk-step">3</span>
+                <div>
+                  <h2>Your details</h2>
+                  <p>All fields required except the message</p>
+                </div>
+              </header>
+
+              <div className={`bk-summary ${formData.date && formData.time && !isSunday ? 'is-set' : ''}`} aria-live="polite">
+                {formData.date && formData.time && !isSunday ? (
+                  <>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                    <span>
+                      <strong>{shortDate}</strong> at <strong>{selectedSlotLabel}</strong>
+                    </span>
+                  </>
+                ) : (
+                  <span>Your selected date and time will appear here</span>
+                )}
+              </div>
+
+              <div className="bk-fields">
+                <div className={fieldCls('fullName', 'span-2')}>
+                  <label htmlFor="fullName">Full name</label>
+                  <input
+                    type="text"
+                    id="fullName"
+                    name="fullName"
+                    autoComplete="name"
+                    value={formData.fullName}
+                    onChange={handleInputChange}
+                    aria-invalid={!!errors.fullName}
+                    aria-describedby="fullName-error"
                     disabled={isBusy}
-                    doctorBlockedDates={doctorBlockedDates}
                   />
-
-                  <input type="hidden" name="date" value={formData.date} />
-
-                  {errors.date && (
-                    <p className="error-text" id="date-error" style={{ marginTop: '8px' }}>
-                      {errors.date}
-                    </p>
-                  )}
+                  <p className="bk-err" id="fullName-error">{errors.fullName}</p>
                 </div>
 
-                {/* 2. Consultation Time Column (Available Time Slots) */}
-                <div
-                  className={`datetime-col-slots ${errors.time ? 'invalid' : ''}`}
-                  ref={slotSectionRef}
-                >
-                  <input type="hidden" name="time" value={formData.time} />
+                <div className={fieldCls('phone')}>
+                  <label htmlFor="phone">Phone number</label>
+                  <input
+                    type="tel"
+                    id="phone"
+                    name="phone"
+                    autoComplete="tel"
+                    placeholder="10-digit mobile number"
+                    inputMode="numeric"
+                    maxLength={10}
+                    value={formData.phone}
+                    onChange={handleInputChange}
+                    aria-invalid={!!errors.phone}
+                    aria-describedby="phone-error"
+                    disabled={isBusy}
+                  />
+                  <p className="bk-err" id="phone-error">{errors.phone}</p>
+                </div>
 
-                  <div className="slot-section">
-                    <div className="slot-head">
-                      <h3>Choose Consultation Time</h3>
-                      <p>Clinic hours: 9:00 AM to 6:00 PM, Mon &ndash; Sat</p>
-                    </div>
+                <div className={fieldCls('email')}>
+                  <label htmlFor="email">Email (for calendar invite)</label>
+                  <input
+                    type="email"
+                    id="email"
+                    name="email"
+                    autoComplete="email"
+                    placeholder="name@example.com"
+                    value={formData.email}
+                    onChange={handleInputChange}
+                    aria-invalid={!!errors.email}
+                    aria-describedby="email-error"
+                    disabled={isBusy}
+                  />
+                  <p className="bk-err" id="email-error">{errors.email}</p>
+                </div>
 
-                    <p className="slot-date-note" id="slot-date-note">
-                      {!formData.date
-                        ? 'Select a date on the calendar to see available times.'
-                        : tomorrowIso && formData.date < tomorrowIso
-                        ? 'Same-day and past appointments cannot be booked online. Please select tomorrow or a later date.'
-                        : isSunday
-                        ? 'The clinic is closed on Sunday. Please choose another date.'
-                        : isDoctorDateBlocked
-                        ? `Dr. Mahesh Shete is unavailable on ${prettyDate} (${doctorBlockReason || 'Doctor on leave'}).`
-                        : isLoadingSlots
-                        ? 'Checking real-time calendar availability...'
-                        : `Available times on ${prettyDate}`}
-                    </p>
+                <div className={fieldCls('age')}>
+                  <label htmlFor="age">Age</label>
+                  <input
+                    type="number"
+                    id="age"
+                    name="age"
+                    min="1"
+                    max="120"
+                    inputMode="numeric"
+                    placeholder="e.g. 30"
+                    value={formData.age}
+                    onChange={handleInputChange}
+                    aria-invalid={!!errors.age}
+                    aria-describedby="age-error"
+                    disabled={isBusy}
+                  />
+                  <p className="bk-err" id="age-error">{errors.age}</p>
+                </div>
 
-                    {tomorrowIso && formData.date && formData.date < tomorrowIso && (
-                      <div className="notice-warning" style={{ marginTop: '10px' }}>
-                        Appointments cannot be booked for current date or previous dates. Please select tomorrow or a later date.
-                      </div>
-                    )}
+                <div className={fieldCls('reason')}>
+                  <label htmlFor="reason">Reason for consultation</label>
+                  <select
+                    id="reason"
+                    name="reason"
+                    value={formData.reason}
+                    onChange={handleInputChange}
+                    aria-invalid={!!errors.reason}
+                    aria-describedby="reason-error"
+                    disabled={isBusy}
+                  >
+                    <option value="">Select a reason</option>
+                    <option>Piles (Bavasir / Mulvyadh)</option>
+                    <option>Fissure</option>
+                    <option>Fistula (Bhagandar)</option>
+                    <option>Pilonidal Sinus</option>
+                    <option>Stomach-Related Ailments</option>
+                    <option>Other / General Consultation</option>
+                  </select>
+                  <p className="bk-err" id="reason-error">{errors.reason}</p>
+                </div>
 
-                    {isDoctorDateBlocked && (
-                      <div className="notice-warning" style={{ marginTop: '10px' }}>
-                        <strong>Doctor On Leave:</strong> Dr. Mahesh Shete is unavailable on this date ({doctorBlockReason || 'Doctor unavailable'}). Please select another date.
-                      </div>
-                    )}
-
-                    {!isSunday && !isDoctorDateBlocked && formData.date && (!tomorrowIso || formData.date >= tomorrowIso) && (
-                      <>
-                        <div className="slot-grid" id="slot-grid">
-                          {SLOTS.map((slot) => {
-                            const isDoctorBlocked = doctorBlockedSlots.includes(slot.value);
-                            const isBooked = serverBookedSlots.includes(slot.value);
-                            const isUnavailable = isBooked || isDoctorBlocked;
-                            const isSelected = formData.time === slot.value;
-                            return (
-                              <button
-                                key={slot.value}
-                                type="button"
-                                className={`slot-btn ${
-                                  isDoctorBlocked ? 'doctor-blocked' : isBooked ? 'booked' : 'open'
-                                } ${isSelected ? 'selected' : ''}`}
-                                disabled={isUnavailable || isBusy}
-                                aria-label={
-                                  isDoctorBlocked
-                                    ? `${slot.label} (Doctor Unavailable)`
-                                    : isBooked
-                                    ? `${slot.label} (Booked)`
-                                    : `${slot.label} (Available)`
-                                }
-                                onClick={() => handleSlotSelect(slot.value)}
-                              >
-                                <span className="slot-time">{slot.label}</span>
-                                <span
-                                  className={`slot-badge ${
-                                    isDoctorBlocked
-                                      ? 'badge-doctor-blocked'
-                                      : isBooked
-                                      ? 'badge-booked'
-                                      : 'badge-open'
-                                  }`}
-                                >
-                                  {isDoctorBlocked ? 'Unavailable' : isBooked ? 'Booked' : 'Available'}
-                                </span>
-                              </button>
-                            );
-                          })}
-                        </div>
-
-                        <div className="slot-legend">
-                          <span className="legend-item">
-                            <span className="legend-dot dot-open"></span> Available
-                          </span>
-                          <span className="legend-item">
-                            <span className="legend-dot dot-booked"></span> Already Booked
-                          </span>
-                          <span className="legend-item">
-                            <span className="legend-dot dot-leave"></span> Doctor Blocked
-                          </span>
-                          <span className="legend-item">
-                            <span className="legend-dot dot-selected"></span> Selected
-                          </span>
-                        </div>
-                      </>
-                    )}
-
-                    {/* Selected Date & Time Confirmation Banner */}
-                    {formData.date && formData.time && !isSunday && (
-                      <div className="selected-slot-banner" aria-live="polite">
-                        <div className="slot-banner-icon">
-                          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                            <polyline points="20 6 9 17 4 12"></polyline>
-                          </svg>
-                        </div>
-                        <div className="slot-banner-content">
-                          <strong>Confirmed Selection:</strong>
-                          <span>{prettyDate} at {selectedSlotLabel}</span>
-                        </div>
-                      </div>
-                    )}
-
-                    {errors.time && (
-                      <p className="error-text" id="time-error" style={{ marginTop: '10px' }}>
-                        {errors.time}
-                      </p>
-                    )}
-
-                    <p className="slot-note" style={{ marginTop: '10px' }}>
-                      Slots marked Booked are already reserved in the doctor&apos;s Google Calendar.
-                    </p>
-                  </div>
+                <div className={fieldCls('message', 'span-2')}>
+                  <label htmlFor="message">
+                    Message <span>(optional)</span>
+                  </label>
+                  <textarea
+                    id="message"
+                    name="message"
+                    rows={2}
+                    maxLength={300}
+                    placeholder="Anything you would like the doctor to know"
+                    value={formData.message}
+                    onChange={handleInputChange}
+                    aria-describedby="message-error"
+                    disabled={isBusy}
+                  ></textarea>
+                  <p className="bk-err" id="message-error">{errors.message}</p>
                 </div>
               </div>
-            </div>
 
-            {/* Message */}
-            <div className={`field full ${errors.message ? 'invalid' : ''}`}>
-              <label htmlFor="message">
-                Message <span>(optional)</span>
-              </label>
-              <textarea
-                id="message"
-                name="message"
-                maxLength={300}
-                placeholder="Anything you would like the doctor to know before your visit"
-                value={formData.message}
-                onChange={handleInputChange}
-                aria-describedby="message-error"
-                disabled={isBusy}
-              ></textarea>
-              <p className="error-text" id="message-error">
-                {errors.message}
-              </p>
-            </div>
-          </div>
+              {paymentError && (
+                <div className="payment-error-banner bk-pay-error" role="alert">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="10" />
+                    <line x1="12" y1="8" x2="12" y2="12" />
+                    <line x1="12" y1="16" x2="12.01" y2="16" />
+                  </svg>
+                  <span>{paymentError}</span>
+                </div>
+              )}
 
-          {paymentError && (
-            <div className="payment-error-banner" role="alert" style={{ marginTop: '16px' }}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="10" />
-                <line x1="12" y1="8" x2="12" y2="12" />
-                <line x1="12" y1="16" x2="12.01" y2="16" />
-              </svg>
-              <span>{paymentError}</span>
-            </div>
-          )}
-
-          <div className="form-actions">
-            <button type="submit" className="btn" disabled={isBusy}>
-              {isSubmitting
-                ? 'Payment Successful! Booking Appointment...'
-                : isProcessingPayment
-                ? 'Opening Razorpay...'
-                : isCheckingSlot
-                ? 'Checking Slot...'
-                : 'Pay 800 Rs & Book Appointment'}
-            </button>
+              <button type="submit" className="bk-pay" disabled={isBusy}>
+                {isSubmitting
+                  ? 'Payment Successful! Booking Appointment...'
+                  : isProcessingPayment
+                  ? 'Opening Razorpay...'
+                  : isCheckingSlot
+                  ? 'Checking Slot...'
+                  : `Pay ₹${CONSULTATION_FEE_INR} & Book Appointment`}
+              </button>
+            </section>
           </div>
         </form>
       </div>

@@ -175,101 +175,76 @@ export default function CalendarPicker({
     return days;
   }, [viewYear, viewMonth, todayIso, minDate, selectedDate, disabled, doctorBlockedDates]);
 
-  const selectedDisplayFormatted = useMemo(() => {
-    if (!selectedDate) return '';
-    try {
-      const d = new Date(`${selectedDate}T00:00:00`);
-      if (isNaN(d.getTime())) return '';
-      return d.toLocaleDateString('en-IN', {
-        weekday: 'long',
-        day: 'numeric',
-        month: 'long',
-        year: 'numeric',
-      });
-    } catch {
-      return '';
-    }
-  }, [selectedDate]);
-
   return (
-    <div className="custom-calendar-widget">
-      {/* Calendar Header */}
-      <div className="cal-header">
-        <div className="cal-title-wrap">
-          <span className="cal-month-name">{MONTH_NAMES[viewMonth]}</span>
-          <span className="cal-year-num">{viewYear}</span>
+    <div className="bkc">
+      <div className="bkc-head">
+        <div className="bkc-title">
+          <span className="bkc-month">{MONTH_NAMES[viewMonth]}</span>
+          <span className="bkc-year">{viewYear}</span>
         </div>
-
-        <div className="cal-nav-actions">
+        <div className="bkc-nav">
           <button
             type="button"
-            className="cal-nav-btn"
+            className="bkc-nav-btn"
             onClick={handlePrevMonth}
             disabled={!canGoPrev || disabled}
             aria-label="Previous month"
             title={canGoPrev ? 'View previous month' : 'Cannot view past months'}
           >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="15 18 9 12 15 6"></polyline>
             </svg>
           </button>
-
           <button
             type="button"
-            className="cal-nav-btn"
+            className="bkc-nav-btn"
             onClick={handleNextMonth}
             disabled={!canGoNext || disabled}
             aria-label="Next month"
             title={canGoNext ? 'View next month' : 'Advance booking limited to next 3 months'}
           >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="9 18 15 12 9 6"></polyline>
             </svg>
           </button>
         </div>
       </div>
 
-      {/* Weekday Column Headers */}
-      <div className="cal-weekdays" role="row">
+      <div className="bkc-weekdays" role="row">
         {WEEKDAYS.map((wd) => (
           <div
             key={wd.short}
-            className={`cal-weekday ${wd.isSunday ? 'cal-weekday-sun' : ''}`}
+            className={`bkc-weekday ${wd.isSunday ? 'is-sun' : ''}`}
             title={wd.isSunday ? 'Clinic closed on Sundays' : wd.full}
           >
-            <span>{wd.short}</span>
-            {wd.isSunday && <small className="cal-sun-tag">Closed</small>}
+            {wd.short}
           </div>
         ))}
       </div>
 
-      {/* Days Grid */}
-      <div className="cal-days-grid" role="grid" aria-label="Appointment date calendar">
+      <div className="bkc-grid" role="grid" aria-label="Appointment date calendar">
         {calendarDays.map((item) => {
           if (item.blank) {
-            return <div key={item.key} className="cal-day-cell cal-blank-cell" aria-hidden="true" />;
+            return <div key={item.key} className="bkc-cell is-blank" aria-hidden="true" />;
           }
 
-          const {
-            iso,
-            day,
-            isSunday,
-            isDoctorLeave,
-            isToday,
-            isUnselectable,
-            isSelected,
-            reason,
-          } = item;
+          const { iso, day, isSunday, isDoctorLeave, isToday, isUnselectable, isSelected, reason } = item;
+
+          const cls = [
+            'bkc-cell',
+            isSelected ? 'is-selected' : isUnselectable ? 'is-disabled' : 'is-available',
+            isSunday ? 'is-sunday' : '',
+            isDoctorLeave ? 'is-leave' : '',
+            isToday ? 'is-today' : '',
+          ]
+            .filter(Boolean)
+            .join(' ');
 
           return (
             <button
               key={item.key}
               type="button"
-              className={`cal-day-cell ${isSelected ? 'selected' : ''} ${
-                isUnselectable ? 'disabled' : 'available'
-              } ${isSunday ? 'sunday' : ''} ${isDoctorLeave ? 'doctor-leave' : ''} ${
-                isToday ? 'today' : ''
-              }`}
+              className={cls}
               disabled={isUnselectable || disabled}
               onClick={() => onSelectDate(iso!)}
               aria-label={`${day} ${MONTH_NAMES[viewMonth]} ${viewYear}${
@@ -278,63 +253,19 @@ export default function CalendarPicker({
               aria-selected={isSelected}
               title={reason || 'Click to select this date'}
             >
-              <span className="cal-day-num">{day}</span>
-              {isToday && <span className="cal-today-badge">Today</span>}
-              {isSunday && <span className="cal-closed-pill">Closed</span>}
-              {isDoctorLeave && <span className="cal-leave-pill" title={reason}>Leave</span>}
-              {!isUnselectable && !isSelected && <span className="cal-avail-dot" />}
-              {isSelected && <span className="cal-selected-check">✓</span>}
+              <span className="bkc-num">{day}</span>
+              {isDoctorLeave && <span className="bkc-tag">Leave</span>}
             </button>
           );
         })}
       </div>
 
-      {/* Calendar Legend */}
-      <div className="cal-legend">
-        <div className="cal-legend-item">
-          <span className="cal-legend-dot dot-avail" />
-          <span>Available</span>
-        </div>
-        <div className="cal-legend-item">
-          <span className="cal-legend-dot dot-selected" />
-          <span>Selected</span>
-        </div>
-        <div className="cal-legend-item">
-          <span className="cal-legend-dot dot-closed" />
-          <span>Sunday (Closed)</span>
-        </div>
-        <div className="cal-legend-item">
-          <span className="cal-legend-dot dot-leave" />
-          <span>Doctor On Leave</span>
-        </div>
-        <div className="cal-legend-item">
-          <span className="cal-legend-dot dot-disabled" />
-          <span>Past / Today</span>
-        </div>
+      <div className="bkc-legend">
+        <span><i className="bkc-dot d-avail" />Available</span>
+        <span><i className="bkc-dot d-selected" />Selected</span>
+        <span><i className="bkc-dot d-leave" />Doctor leave</span>
+        <span><i className="bkc-dot d-off" />Sun / past</span>
       </div>
-
-      {/* Selected Date Notification Ribbon */}
-      {selectedDisplayFormatted ? (
-        <div className="cal-selected-banner">
-          <div className="cal-banner-icon">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
-              <line x1="16" y1="2" x2="16" y2="6"></line>
-              <line x1="8" y1="2" x2="8" y2="6"></line>
-              <line x1="3" y1="10" x2="21" y2="10"></line>
-            </svg>
-          </div>
-          <div className="cal-banner-text">
-            <strong>Selected Consultation Date:</strong>
-            <span>{selectedDisplayFormatted}</span>
-          </div>
-        </div>
-      ) : (
-        <div className="cal-empty-prompt">
-          Please select an available date from tomorrow onwards.
-        </div>
-      )}
     </div>
   );
 }
-

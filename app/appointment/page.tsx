@@ -36,17 +36,22 @@ export default function AppointmentPage() {
         </div>
       </section>
 
-      <section className="meditro-section booking-section">
-        <div className="container booking-grid">
-          <div>
-            <AppointmentForm />
-          </div>
-          <aside className="booking-aside">
-            <div className="clinic-card">
-              <span className="meditro-badge-orange" style={{ marginBottom: '12px' }}>
-                Clinic Info
-              </span>
-              <h2>Visit {CLINIC.doctor.name}</h2>
+      {/* Booking workspace: fits one desktop screen (date -> time -> details) */}
+      <section className="bk-screen">
+        <div className="container">
+          <AppointmentForm />
+        </div>
+      </section>
+
+      {/* Info that used to sit beside the form now lives below it */}
+      <section className="bk-info-section">
+        <div className="container bk-info-grid">
+          <div className="clinic-card bk-clinic-card">
+            <span className="meditro-badge-orange" style={{ marginBottom: '12px' }}>
+              Clinic Info
+            </span>
+            <h2>Visit {CLINIC.doctor.name}</h2>
+            <div className="bk-clinic-rows">
               <div className="info-item">
                 <span>Address</span>
                 <p>
@@ -68,6 +73,43 @@ export default function AppointmentPage() {
                 <p>{CLINIC.address.landmark}</p>
               </div>
             </div>
+          </div>
+
+          <div className="aside-trust-card bk-trust-card">
+            <h3>What&apos;s Included</h3>
+            <ul className="aside-trust-list">
+              <li>
+                <span className="trust-check">✓</span>
+                <div>
+                  <strong>One-to-One Consultation</strong>
+                  <p>Examination and treatment plan by {CLINIC.doctor.name}</p>
+                </div>
+              </li>
+              <li>
+                <span className="trust-check">✓</span>
+                <div>
+                  <strong>In-Clinic or Online</strong>
+                  <p>Clinic visit at Akurdi, PCMC or a Google Meet link</p>
+                </div>
+              </li>
+              <li>
+                <span className="trust-check">✓</span>
+                <div>
+                  <strong>Prescription After Your Visit</strong>
+                  <p>Delivered to your email and WhatsApp after visit</p>
+                </div>
+              </li>
+              <li>
+                <span className="trust-check">✓</span>
+                <div>
+                  <strong>Patient Privacy</strong>
+                  <p>Your details are used only for your appointment</p>
+                </div>
+              </li>
+            </ul>
+          </div>
+
+          <div className="bk-info-stack">
             <div className="aside-note">
               <strong>Before your visit</strong>
               <p>
@@ -75,42 +117,6 @@ export default function AppointmentPage() {
               </p>
             </div>
 
-            {/* Consultation Highlights Card */}
-            <div className="aside-trust-card">
-              <h3>What&apos;s Included</h3>
-              <ul className="aside-trust-list">
-                <li>
-                  <span className="trust-check">✓</span>
-                  <div>
-                    <strong>One-to-One Consultation</strong>
-                    <p>Examination and treatment plan by {CLINIC.doctor.name}</p>
-                  </div>
-                </li>
-                <li>
-                  <span className="trust-check">✓</span>
-                  <div>
-                    <strong>In-Clinic or Online</strong>
-                    <p>Clinic visit at Akurdi, PCMC or a Google Meet link</p>
-                  </div>
-                </li>
-                <li>
-                  <span className="trust-check">✓</span>
-                  <div>
-                    <strong>Prescription After Your Visit</strong>
-                    <p>Delivered to your email and WhatsApp after visit</p>
-                  </div>
-                </li>
-                <li>
-                  <span className="trust-check">✓</span>
-                  <div>
-                    <strong>Patient Privacy</strong>
-                    <p>Your details are used only for your appointment</p>
-                  </div>
-                </li>
-              </ul>
-            </div>
-
-            {/* Helpline Assistance Card */}
             <div className="aside-help-card">
               <div className="help-icon-wrap">
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -125,7 +131,7 @@ export default function AppointmentPage() {
                 </a>
               </div>
             </div>
-          </aside>
+          </div>
         </div>
       </section>
     </>
