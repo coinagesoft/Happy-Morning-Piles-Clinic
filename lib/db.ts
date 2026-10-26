@@ -158,6 +158,18 @@ export async function ensureDatabaseSchema(): Promise<void> {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
   `);
 
+  // Safe migrations: day-wise schedule + visiting location
+  try {
+    await pool.execute(`ALTER TABLE clinic_settings ADD COLUMN weekly LONGTEXT NULL`);
+  } catch {
+    // Column might already exist
+  }
+  try {
+    await pool.execute(`ALTER TABLE appointments ADD COLUMN location VARCHAR(255) NULL`);
+  } catch {
+    // Column might already exist
+  }
+
   await pool.execute(`
     CREATE TABLE IF NOT EXISTS google_oauth_tokens (
       id INT PRIMARY KEY DEFAULT 1,

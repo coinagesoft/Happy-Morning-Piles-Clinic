@@ -5,6 +5,7 @@ import {
   getPrescriptionByAppointment,
   savePrescription,
   getMedicineSuggestions,
+  getPrescriptionHistory,
 } from '@/lib/prescriptions';
 import type { PrescriptionMedicine } from '@/lib/prescriptionTemplate';
 
@@ -25,11 +26,15 @@ export async function GET(request: NextRequest) {
     if (!appointmentId) {
       return NextResponse.json({ error: 'appointmentId is required.' }, { status: 400 });
     }
-    const [prescription, suggestions] = await Promise.all([
+    const appointment = await getAppointmentById(appointmentId);
+    const [prescription, suggestions, history] = await Promise.all([
       getPrescriptionByAppointment(appointmentId),
       getMedicineSuggestions(),
+      appointment
+        ? getPrescriptionHistory({ email: appointment.email, phone: appointment.phone }, appointmentId)
+        : Promise.resolve([]),
     ]);
-    return NextResponse.json({ prescription, suggestions });
+    return NextResponse.json({ prescription, suggestions, history });
   } catch (err) {
     console.error('[prescriptions] GET failed:', err);
     return NextResponse.json({ error: 'Failed to load prescription.' }, { status: 500 });

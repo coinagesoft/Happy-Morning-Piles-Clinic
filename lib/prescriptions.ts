@@ -69,6 +69,44 @@ export async function getPrescriptionById(id: string): Promise<Prescription | nu
   return rows.length ? mapRow(rows[0]) : null;
 }
 
+/**
+ * Earlier prescriptions of the same patient (matched by phone or real e-mail),
+ * newest first, excluding the appointment that is currently open.
+ */
+export async function getPrescriptionHistory(
+  patient: { email?: string; phone?: string },
+  excludeAppointmentId: string,
+  limit = 20
+): Promise<Prescription[]> {
+  await ensureDatabaseSchema();
+  const phone = (patient.phone || '').trim();
+  const email = (patient.email || '').trim().toLowerCase();
+  const realEmail = email && email !== 'patient@walkin.clinic' ? email : '';
+  if (!phone && !realEmail) return [];
+
+  const conditions: string[] = [];
+  const params: (string | number)[] = [];
+  if (phone) {
+    conditions.push('patient_phone = ?');
+    params.push(phone);
+  }
+  if (realEmail) {
+    conditions.push('LOWER(patient_email) = ?');
+    params.push(realEmail);
+  }
+  params.push(excludeAppointmentId);
+  params.push(Math.max(1, Math.min(50, Math.floor(limit))));
+
+  const [rows] = await getPool().query<PrescriptionRow[]>(
+    `SELECT * FROM prescriptions
+     WHERE (${conditions.join(' OR ')}) AND appointment_id <> ?
+     ORDER BY prescription_date DESC, updated_at DESC
+     LIMIT ?`,
+    params
+  );
+  return rows.map(mapRow);
+}
+
 export type PrescriptionInput = Omit<
   Prescription,
   'id' | 'createdAt' | 'updatedAt' | 'emailedAt'

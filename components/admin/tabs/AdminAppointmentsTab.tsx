@@ -467,6 +467,7 @@ export default function AdminAppointmentsTab({
                         <div className="cell-datetime">
                           <strong>{appt.date}</strong>
                           <span>{appt.time}</span>
+                          {appt.location && <small className="appt-location">📍 {appt.location}</small>}
                         </div>
                       </td>
                       <td>

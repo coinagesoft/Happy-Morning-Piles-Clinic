@@ -10,6 +10,11 @@ import {
   areAllSlotsOccupied,
   DEFAULT_CLINIC_SETTINGS,
   generateSlots,
+  getSlotLocation,
+  isClinicClosedOn,
+  getWeekday,
+  WEEKDAY_NAMES,
+  ClinicSettings,
   getSlotStep,
 } from '@/lib/slots';
 import { CLINIC } from '@/lib/clinicInfo';
@@ -32,16 +37,21 @@ export function isClinicDateUnavailable(
   overrides: DoctorOverride[] = [],
   appointments: Appointment[] = [],
   slotValues: string[] = DEFAULT_SLOT_VALUES,
-  step: number = DEFAULT_STEP
+  step: number = DEFAULT_STEP,
+  settings?: ClinicSettings
 ): { unavailable: boolean; reason?: string } {
   if (!dateIso) return { unavailable: true, reason: 'Please select an appointment date.' };
   const d = new Date(`${dateIso}T00:00:00`);
   if (isNaN(d.getTime())) return { unavailable: true, reason: 'Invalid date format.' };
 
-  // 1. Weekly off (Sunday)
-  if (d.getDay() === 0) {
-    return { unavailable: true, reason: 'The clinic is closed on Sundays (Weekly Off).' };
+  // 1. Weekly off - day-wise schedule decides which weekdays the doctor sits (Sunday by default)
+  const closed = settings ? isClinicClosedOn(settings, dateIso) : d.getDay() === 0;
+  if (closed) {
+    const dayName = settings ? WEEKDAY_NAMES[getWeekday(dateIso)] : 'Sunday';
+    return { unavailable: true, reason: `The doctor does not take appointments on ${dayName}s (Weekly Off).` };
   }
+  // Only this weekday's slots count when checking "fully booked"
+  if (settings) slotValues = generateSlots(settings, dateIso).map((s) => s.value);
 
   // 2. Doctor on leave
   const override = overrides.find((o) => o.date === dateIso);
@@ -71,7 +81,8 @@ export function findNextAvailableClinicDate(
   overrides: DoctorOverride[] = [],
   appointments: Appointment[] = [],
   slotValues: string[] = DEFAULT_SLOT_VALUES,
-  step: number = DEFAULT_STEP
+  step: number = DEFAULT_STEP,
+  settings?: ClinicSettings
 ): string {
   let curr = new Date(`${startDateIso}T00:00:00`);
   if (isNaN(curr.getTime())) {
@@ -81,7 +92,7 @@ export function findNextAvailableClinicDate(
 
   for (let i = 0; i < 60; i++) {
     const iso = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(curr);
-    const check = isClinicDateUnavailable(iso, overrides, appointments, slotValues, step);
+    const check = isClinicDateUnavailable(iso, overrides, appointments, slotValues, step, settings);
     if (!check.unavailable) {
       return iso;
     }
@@ -108,7 +119,8 @@ export default function AdminBookAppointmentModal({
   appointments = [],
   overrides = [],
 }: AdminBookAppointmentModalProps) {
-  const { slots: ALL_CLINIC_SLOTS, slotValues, step } = useClinicSettings();
+  const { settings, slotValues, step, slotsForDate } = useClinicSettings();
+  // Slots of the selected weekday only (each with its location)
   // Format today's date in YYYY-MM-DD
   const todayIso = useMemo(() => {
     return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
@@ -130,13 +142,13 @@ export default function AdminBookAppointmentModal({
     if (
       initialDate &&
       initialDate > todayIso &&
-      !isClinicDateUnavailable(initialDate, overrides, appointments, slotValues, step).unavailable
+      !isClinicDateUnavailable(initialDate, overrides, appointments, slotValues, step, settings).unavailable
     ) {
       return initialDate;
     }
-    return findNextAvailableClinicDate(tomorrowIso, overrides, appointments, slotValues, step);
+    return findNextAvailableClinicDate(tomorrowIso, overrides, appointments, slotValues, step, settings);
   });
-  const [time, setTime] = useState('10:30');
+  const [time, setTime] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<'Cash' | 'UPI' | 'Card' | 'Pending'>('Cash');
   const [paymentStatus, setPaymentStatus] = useState<'paid' | 'pending'>('paid');
   const [amount, setAmount] = useState('800');
@@ -159,7 +171,7 @@ export default function AdminBookAppointmentModal({
     if (
       initialDate &&
       initialDate > todayIso &&
-      !isClinicDateUnavailable(initialDate, overrides, appointments, slotValues, step).unavailable
+      !isClinicDateUnavailable(initialDate, overrides, appointments, slotValues, step, settings).unavailable
     ) {
       setDate(initialDate);
     } else if (isOpen) {
@@ -167,14 +179,24 @@ export default function AdminBookAppointmentModal({
         if (
           curr &&
           curr > todayIso &&
-          !isClinicDateUnavailable(curr, overrides, appointments, slotValues, step).unavailable
+          !isClinicDateUnavailable(curr, overrides, appointments, slotValues, step, settings).unavailable
         ) {
           return curr;
         }
-        return findNextAvailableClinicDate(tomorrowIso, overrides, appointments, slotValues, step);
+        return findNextAvailableClinicDate(tomorrowIso, overrides, appointments, slotValues, step, settings);
       });
     }
-  }, [initialDate, todayIso, tomorrowIso, overrides, appointments, isOpen, slotValues, step]);
+  }, [initialDate, todayIso, tomorrowIso, overrides, appointments, isOpen, slotValues, step, settings]);
+
+  // Slots + location of the selected weekday; keep the chosen time valid for that day
+  const daySlots = slotsForDate(date);
+  const selectedLocation = time ? getSlotLocation(settings, date, time) : undefined;
+  useEffect(() => {
+    if (!date) return;
+    const list = slotsForDate(date);
+    setTime((curr) => (list.some((s) => s.value === curr) ? curr : list[0]?.value ?? ''));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [date, settings]);
 
   // ESC key listener & body scroll lock
   useEffect(() => {
@@ -211,7 +233,7 @@ export default function AdminBookAppointmentModal({
             setBookedSlots(data.bookedSlots || []);
             // If current time is booked, auto-select first free slot
             if (data.bookedSlots && data.bookedSlots.includes(time)) {
-              const free = ALL_CLINIC_SLOTS.find((s) => !data.bookedSlots.includes(s.value));
+              const free = daySlots.find((s) => !data.bookedSlots.includes(s.value));
               if (free) setTime(free.value);
             }
           }
@@ -322,7 +344,7 @@ export default function AdminBookAppointmentModal({
       toast.warning(msg, 'Invalid Date');
       return;
     }
-    const unavailableCheck = isClinicDateUnavailable(date, overrides, appointments, slotValues, step);
+    const unavailableCheck = isClinicDateUnavailable(date, overrides, appointments, slotValues, step, settings);
     if (unavailableCheck.unavailable) {
       const msg = unavailableCheck.reason || 'The selected date is unavailable for booking.';
       setErrorMsg(msg);
@@ -700,7 +722,10 @@ export default function AdminBookAppointmentModal({
                   {isLoadingSlots && <small className="label-loading"> (Checking slots...)</small>}
                 </label>
                 <div className="slots-select-grid">
-                  {ALL_CLINIC_SLOTS.map((slot) => {
+                  {daySlots.length === 0 && (
+                    <p className="field-hint">The doctor does not sit on this day. Please pick another date.</p>
+                  )}
+                  {daySlots.map((slot) => {
                     const isBooked = bookedSlots.includes(slot.value);
                     const isSelected = time === slot.value;
                     return (
@@ -712,11 +737,19 @@ export default function AdminBookAppointmentModal({
                         onClick={() => setTime(slot.value)}
                       >
                         {slot.label}
+                        {slot.location && new Set(daySlots.map((x) => x.location)).size > 1 && (
+                          <span className="slot-pill-loc">{slot.location}</span>
+                        )}
                         {isBooked && <span className="booked-badge">Booked</span>}
                       </button>
                     );
                   })}
                 </div>
+                {selectedLocation && (
+                  <p className="field-hint" style={{ marginTop: 8 }}>
+                    Doctor location for this slot: <strong>{selectedLocation}</strong>
+                  </p>
+                )}
               </div>
 
               {/* 5. Payment & Billing Section */}

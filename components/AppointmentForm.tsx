@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import CalendarPicker from './CalendarPicker';
 import { toast } from '@/components/ui/Toast';
 import { useClinicSettings } from '@/lib/useClinicSettings';
+import { formatSlotLabel } from '@/lib/slots';
 import './booking.css';
 
 interface FormData {
@@ -24,6 +25,7 @@ interface ConfirmedBooking {
   date: string;
   time: string;
   reason: string;
+  location?: string;
   paymentId?: string;
   amount?: number;
   meetLink?: string;
@@ -112,7 +114,7 @@ function loadRazorpayCheckoutScript(): Promise<boolean> {
 }
 
 export default function AppointmentForm() {
-  const { slots: SLOTS } = useClinicSettings();
+  const clinic = useClinicSettings();
   const [formData, setFormData] = useState<FormData>({
     fullName: '',
     phone: '',
@@ -272,7 +274,11 @@ export default function AppointmentForm() {
 
     // Initial date: start from tomorrow; if tomorrow is Sunday, advance to Monday
     const initial = new Date(tomorrow);
-    if (initial.getDay() === 0) {
+    for (let i = 0; i < 7; i++) {
+      const probe = `${initial.getFullYear()}-${String(initial.getMonth() + 1).padStart(2, '0')}-${String(
+        initial.getDate()
+      ).padStart(2, '0')}`;
+      if (!clinic.isClosedOn(probe)) break;
       initial.setDate(initial.getDate() + 1);
     }
     const initialIso = `${initial.getFullYear()}-${String(initial.getMonth() + 1).padStart(
@@ -289,8 +295,7 @@ export default function AppointmentForm() {
   // Fetch booked slots whenever the selected date changes (instant 0ms from cache)
   const fetchBookedSlots = React.useCallback((dateString: string) => {
     if (!dateString) return;
-    const isSun = new Date(`${dateString}T00:00:00`).getDay() === 0;
-    if (isSun) {
+    if (clinic.isClosedOn(dateString)) {
       setServerBookedSlots([]);
       setDoctorBlockedSlots([]);
       setIsDoctorDateBlocked(false);
@@ -327,7 +332,8 @@ export default function AppointmentForm() {
       })
       .catch((err) => console.error('Failed to load booked slots:', err))
       .finally(() => setIsLoadingSlots(false));
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clinic.settings]);
 
   useEffect(() => {
     if (formData.date) {
@@ -381,7 +387,10 @@ export default function AppointmentForm() {
           return 'Appointments must be booked from tomorrow onwards. Same-day or past bookings are not allowed.';
         }
         const d = new Date(`${trimmed}T00:00:00`);
-        if (d.getDay() === 0) return 'The clinic is closed on Sundays. Please choose another day.';
+        if (clinic.isClosedOn(trimmed)) {
+          const dayName = d.toLocaleDateString('en-IN', { weekday: 'long' });
+          return `The doctor does not take appointments on ${dayName}s. Please choose another day.`;
+        }
         return '';
       }
 
@@ -435,8 +444,16 @@ export default function AppointmentForm() {
     setErrors((prev) => ({ ...prev, time: '' }));
   };
 
-  const isSunday = formData.date ? new Date(`${formData.date}T00:00:00`).getDay() === 0 : false;
+  // Day-wise timings: only the slots of the chosen weekday, each with its visiting location
+  const SLOTS = clinic.slotsForDate(formData.date);
+  const isSunday = formData.date ? clinic.isClosedOn(formData.date) : false; // "closed day" (Sunday by default)
+  const closedDayName = formData.date
+    ? new Date(`${formData.date}T00:00:00`).toLocaleDateString('en-IN', { weekday: 'long' })
+    : '';
   const selectedSlotLabel = SLOTS.find((s) => s.value === formData.time)?.label || '';
+  const selectedLocation = formData.time ? clinic.locationFor(formData.date, formData.time) : undefined;
+  const dayLocations = Array.from(new Set(SLOTS.map((s) => s.location).filter(Boolean))) as string[];
+  const hasMultipleLocations = dayLocations.length > 1;
 
   const prettyDate = React.useMemo(() => {
     if (!formData.date || isSunday) return '';
@@ -595,6 +612,7 @@ export default function AppointmentForm() {
         date: result.appointment.date,
         time: result.appointment.time,
         reason: result.appointment.reason,
+        location: result.appointment.location,
         paymentId: result.appointment.paymentId || razorpayPaymentId,
         amount: result.appointment.amount || CONSULTATION_FEE_INR,
         meetLink: result.meetLink,
@@ -721,7 +739,7 @@ export default function AppointmentForm() {
     : tomorrowIso && formData.date < tomorrowIso
     ? 'Same-day and past dates cannot be booked online.'
     : isSunday
-    ? 'The clinic is closed on Sunday. Please choose another date.'
+    ? `The doctor does not take appointments on ${closedDayName}. Please choose another date.`
     : isDoctorDateBlocked
     ? `Doctor is unavailable on ${shortDate || formData.date} (${doctorBlockReason || 'on leave'}).`
     : isLoadingSlots
@@ -752,7 +770,13 @@ export default function AppointmentForm() {
               <p>
                 Thank you, <strong>{confirmedBooking.fullName}</strong>. Your consultation has been scheduled for{' '}
                 <strong>{confirmedBooking.date}</strong> at{' '}
-                <strong>{SLOTS.find((s) => s.value === confirmedBooking.time)?.label || confirmedBooking.time}</strong>.
+                <strong>{formatSlotLabel(confirmedBooking.time)}</strong>
+                {confirmedBooking.location ? (
+                  <>
+                    {' '}at <strong>{confirmedBooking.location}</strong>
+                  </>
+                ) : null}
+                .
               </p>
               <div className="notice-success">
                 Your consultation has been booked successfully! The appointment with Google Meet video call has been
@@ -791,7 +815,7 @@ export default function AppointmentForm() {
                 <span className="bk-step">1</span>
                 <div>
                   <h2>Choose a date</h2>
-                  <p>Mon to Sat, from tomorrow onwards</p>
+                  <p>Doctor's visiting days only, from tomorrow onwards</p>
                 </div>
               </header>
 
@@ -801,6 +825,7 @@ export default function AppointmentForm() {
                 minDate={tomorrowIso}
                 disabled={isBusy}
                 doctorBlockedDates={doctorBlockedDates}
+                closedWeekdays={clinic.closedWeekdays}
               />
               <input type="hidden" name="date" value={formData.date} />
 
@@ -824,6 +849,17 @@ export default function AppointmentForm() {
 
               {dateIsBookable ? (
                 <>
+                  {dayLocations.length > 0 && (
+                    <p className="bk-day-location" id="slot-location">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="M21 10c0 7-9 13-9 13S3 17 3 10a9 9 0 0 1 18 0z" />
+                        <circle cx="12" cy="10" r="3" />
+                      </svg>
+                      <span>
+                        Doctor will be at <strong>{dayLocations.join(' & ')}</strong>
+                      </span>
+                    </p>
+                  )}
                   <div className="bk-slots" id="slot-grid">
                     {SLOTS.map((slot) => {
                       const isDoctorBlocked = doctorBlockedSlots.includes(slot.value);
@@ -849,6 +885,9 @@ export default function AppointmentForm() {
                           onClick={() => handleSlotSelect(slot.value)}
                         >
                           <span className="bk-slot-time">{slot.label}</span>
+                          {hasMultipleLocations && slot.location ? (
+                            <span className="bk-slot-loc">{slot.location}</span>
+                          ) : null}
                           <span className="bk-slot-tag">
                             {isSelected ? 'Selected' : isDoctorBlocked ? 'Unavailable' : isBooked ? 'Booked' : 'Available'}
                           </span>
@@ -901,6 +940,7 @@ export default function AppointmentForm() {
                     </svg>
                     <span>
                       <strong>{shortDate}</strong> at <strong>{selectedSlotLabel}</strong>
+                      {selectedLocation ? <> &middot; {selectedLocation}</> : null}
                     </span>
                   </>
                 ) : (

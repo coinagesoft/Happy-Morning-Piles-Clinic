@@ -30,7 +30,7 @@ export default function DoctorAvailabilityManager({
   onRefresh,
   onOverridesChange,
 }: DoctorAvailabilityManagerProps) {
-  const { slots: ALL_SLOTS, slotValues, step } = useClinicSettings();
+  const { slots: UNION_SLOTS, slotsForDate, step } = useClinicSettings();
   const tomorrowIso = React.useMemo(() => {
     const d = new Date();
     d.setDate(d.getDate() + 1);
@@ -40,6 +40,9 @@ export default function DoctorAvailabilityManager({
   }, []);
 
   const [date, setDate] = useState(tomorrowIso);
+  // Blackout slots follow the weekday of the chosen date (day-wise timings + location)
+  const ALL_SLOTS = slotsForDate(date);
+  const slotValues = ALL_SLOTS.map((s) => s.value);
   const [type, setType] = useState<'full_day' | 'specific_slots'>('full_day');
   const [selectedSlots, setSelectedSlots] = useState<string[]>([]);
   const [reason, setReason] = useState('');
@@ -318,6 +321,9 @@ export default function DoctorAvailabilityManager({
                   </div>
                 </div>
 
+                {ALL_SLOTS.length === 0 && (
+                  <span className="field-hint">The doctor does not sit on this weekday (see Weekly Schedule above).</span>
+                )}
                 <div className="slot-chips-grid">
                   {ALL_SLOTS.map((s) => {
                     const isSelected = selectedSlots.includes(s.value);
@@ -332,6 +338,9 @@ export default function DoctorAvailabilityManager({
                         title={isBooked ? 'This time slot is already booked' : undefined}
                       >
                         <span>{s.label}</span>
+                        {s.location && new Set(ALL_SLOTS.map((x) => x.location)).size > 1 ? (
+                          <span className="chip-loc">{s.location}</span>
+                        ) : null}
                         {isBooked ? (
                           <span className="chip-booked-mark">Booked</span>
                         ) : isSelected ? (
@@ -416,7 +425,7 @@ export default function DoctorAvailabilityManager({
                 <line x1="3" y1="10" x2="21" y2="10"></line>
               </svg>
               <p>No active doctor leaves or blackouts registered.</p>
-              <small>All configured clinic hours (Mon to Sat) are currently open for patient booking.</small>
+              <small>All days in the weekly schedule are currently open for patient booking.</small>
             </div>
           ) : (
             <div className="overrides-table-wrapper">
@@ -460,11 +469,11 @@ export default function DoctorAvailabilityManager({
                         </td>
                         <td className="col-override-details">
                           {item.type === 'full_day' ? (
-                            <span className="full-day-blocked-text">All {ALL_SLOTS.length} clinic slots blocked</span>
+                            <span className="full-day-blocked-text">All clinic slots blocked</span>
                           ) : (
                             <div className="blocked-slots-badges">
                               {item.blockedSlots?.map((slotVal) => {
-                                const label = ALL_SLOTS.find((s) => s.value === slotVal)?.label || slotVal;
+                                const label = UNION_SLOTS.find((s) => s.value === slotVal)?.label || slotVal;
                                 return (
                                   <span key={slotVal} className="slot-badge-mini">
                                     {label}

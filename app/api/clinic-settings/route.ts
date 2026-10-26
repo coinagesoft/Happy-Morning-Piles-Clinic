@@ -32,7 +32,6 @@ async function handleSave(request: NextRequest) {
 
     await saveClinicSettings(settings);
     const slots = generateSlots(settings);
-    const slotValues = new Set(slots.map((s) => s.value));
 
     // Warn about upcoming bookings that don't sit on the new slot grid.
     const todayIst = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(
@@ -40,7 +39,10 @@ async function handleSave(request: NextRequest) {
     );
     const appointments = await getFastAppointments(true);
     const offGridCount = appointments.filter(
-      (a) => a.status !== 'cancelled' && a.date >= todayIst && !slotValues.has(a.time)
+      (a) =>
+        a.status !== 'cancelled' &&
+        a.date >= todayIst &&
+        !generateSlots(settings, a.date).some((slot) => slot.value === a.time)
     ).length;
 
     return NextResponse.json(

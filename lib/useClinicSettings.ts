@@ -7,6 +7,9 @@ import {
   DEFAULT_CLINIC_SETTINGS,
   generateSlots,
   getSlotStep,
+  getClosedWeekdays,
+  getSlotLocation,
+  isClinicClosedOn,
 } from './slots';
 
 /**
@@ -48,6 +51,14 @@ export function useClinicSettings(): {
   slots: ClinicSlot[];
   slotValues: string[];
   step: number;
+  /** Weekdays (0 = Sunday) with no timings. */
+  closedWeekdays: number[];
+  /** Slots of one specific date's weekday (empty when closed). */
+  slotsForDate: (date: string) => ClinicSlot[];
+  /** True when the doctor has no timings on that date's weekday (e.g. Sunday). */
+  isClosedOn: (date: string) => boolean;
+  /** Location of the session containing `time` on `date`. */
+  locationFor: (date: string, time: string) => string | undefined;
   isLoaded: boolean;
   reload: () => Promise<void>;
 } {
@@ -71,6 +82,11 @@ export function useClinicSettings(): {
     slots,
     slotValues,
     step: getSlotStep(settings),
+    closedWeekdays: getClosedWeekdays(settings),
+    slotsForDate: (date: string) => (date ? generateSlots(settings, date) : []),
+    isClosedOn: (date: string) => (date ? isClinicClosedOn(settings, date) : false),
+    locationFor: (date: string, time: string) =>
+      date && time ? getSlotLocation(settings, date, time) : undefined,
     isLoaded: loaded,
     reload: () => loadClinicSettings(true),
   };

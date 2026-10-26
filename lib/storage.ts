@@ -32,6 +32,8 @@ export interface Appointment {
   paidAt?: string;
   notes?: string;
   consultationType?: 'online' | 'offline';
+  /** Where the doctor is sitting for this appointment (from the day-wise schedule). */
+  location?: string;
 }
 
 interface AppointmentRow extends RowDataPacket {
@@ -54,6 +56,7 @@ interface AppointmentRow extends RowDataPacket {
   paid_at: string | null;
   notes: string | null;
   consultation_type?: 'online' | 'offline' | null;
+  location?: string | null;
   created_at: string;
 }
 
@@ -86,6 +89,7 @@ function mapRowToAppointment(row: AppointmentRow): Appointment {
     paidAt: row.paid_at || row.created_at,
     notes: row.notes || '',
     consultationType: isOffline ? 'offline' : 'online',
+    location: row.location || undefined,
   };
 }
 
@@ -197,8 +201,8 @@ export async function saveAppointment(appointment: Appointment): Promise<Appoint
     `INSERT INTO appointments (
       id, full_name, phone, email, age, reason,
       appointment_date, appointment_time, message, meet_link, google_event_id,
-      status, payment_status, amount, payment_method, payment_id, paid_at, notes, consultation_type, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      status, payment_status, amount, payment_method, payment_id, paid_at, notes, consultation_type, location, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON DUPLICATE KEY UPDATE
       full_name = VALUES(full_name),
       phone = VALUES(phone),
@@ -217,7 +221,8 @@ export async function saveAppointment(appointment: Appointment): Promise<Appoint
       payment_id = VALUES(payment_id),
       paid_at = VALUES(paid_at),
       notes = VALUES(notes),
-      consultation_type = VALUES(consultation_type)`,
+      consultation_type = VALUES(consultation_type),
+      location = VALUES(location)`,
     [
       appointment.id,
       appointment.fullName,
@@ -238,6 +243,7 @@ export async function saveAppointment(appointment: Appointment): Promise<Appoint
       paidAt,
       notes,
       consultationType,
+      appointment.location || null,
       appointment.createdAt,
     ]
   );

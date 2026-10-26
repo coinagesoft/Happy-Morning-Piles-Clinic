@@ -10,6 +10,7 @@ import {
 } from '@/lib/storage';
 import { verifyAdminRequest } from '@/lib/adminAuth';
 import { isTimeSlotTaken, getClinicSettings } from '@/lib/clinicSettings';
+import { getSlotLocation } from '@/lib/slots';
 import {
   isGoogleConnected,
   createCalendarMeeting,
@@ -201,7 +202,8 @@ export async function PATCH(request: NextRequest) {
       }
 
       // Make sure the calendar event length follows the current appointment settings
-      await getClinicSettings();
+      const clinicSettings = await getClinicSettings();
+      const targetLocation = getSlotLocation(clinicSettings, targetDate, targetTime);
 
       // Sync with Google Calendar if connected
       if (isGoogleConnected()) {
@@ -227,6 +229,8 @@ export async function PATCH(request: NextRequest) {
       updates.date = targetDate;
       updates.time = targetTime;
       updates.consultationType = targetType;
+      // Follow the doctor's location for the new day/time (keep the old one if the slot is off-schedule)
+      if (targetLocation) updates.location = targetLocation;
     }
 
     const updated = await updateAppointment(id, updates);
@@ -366,6 +370,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const bookingSettings = await getClinicSettings();
+    const bookingLocation = getSlotLocation(bookingSettings, date, time);
+
     const appointmentId = crypto.randomUUID();
     const finalAmount = typeof amount === 'number' && !isNaN(amount) ? amount : 800;
 
@@ -388,6 +395,7 @@ export async function POST(request: NextRequest) {
       paidAt: paymentStatus === 'paid' ? new Date().toISOString() : undefined,
       notes: notes?.trim() || '',
       consultationType: consultationType as 'online' | 'offline',
+      location: bookingLocation,
     };
 
     // Calendar sync & meeting invite

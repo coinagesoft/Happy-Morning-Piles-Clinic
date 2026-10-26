@@ -35,7 +35,7 @@ export default function AdminAppointmentCalendar({
   onSelectPatient,
   onBookDate,
 }: AdminAppointmentCalendarProps) {
-  const { slotValues, step } = useClinicSettings();
+  const { step, isClosedOn, slotsForDate } = useClinicSettings();
   // Today in Asia/Kolkata
   const todayIso = useMemo(() => {
     return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
@@ -216,14 +216,13 @@ export default function AdminAppointmentCalendar({
           const dayAppts = appointmentsByDate.get(day.dateIso) || [];
           const override = overridesByDate.get(day.dateIso);
           const isFullDayLeave = override?.type === 'full_day';
-          const dayDate = new Date(`${day.dateIso}T00:00:00`);
-          const isSunday = dayDate.getDay() === 0;
+          const isSunday = isClosedOn(day.dateIso); // weekly-off day per the day-wise schedule
 
           // Occupied slots calculation
           const activeAppts = dayAppts.filter((a) => a.status !== 'cancelled');
           const blockedSlots = override?.type === 'specific_slots' ? (override.blockedSlots || []) : [];
           const isFullyBooked = areAllSlotsOccupied(
-            slotValues,
+            slotsForDate(day.dateIso).map((slot) => slot.value),
             activeAppts.map((a) => a.time),
             blockedSlots,
             step
@@ -270,7 +269,7 @@ export default function AdminAppointmentCalendar({
 
               {/* Sunday Clinic Weekly Off Marker */}
               {isSunday && day.isCurrentMonth && (
-                <div className="cal-sunday-pill" title="Clinic closed on Sundays (Weekly Off)">
+                <div className="cal-sunday-pill" title="Doctor does not sit on this day (Weekly Off)">
                   <span>Weekly Off</span>
                 </div>
               )}
@@ -286,7 +285,7 @@ export default function AdminAppointmentCalendar({
               {isFullyBooked && !isPastOrToday && !isSunday && !isFullDayLeave && (
                 <div
                   className="cal-fullybooked-pill"
-                  title="All 10 appointment slots are booked for this date"
+                  title="All appointment slots are booked for this date"
                 >
                   <span>🔴 Fully Booked (10/10)</span>
                 </div>

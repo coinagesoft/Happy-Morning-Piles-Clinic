@@ -5,11 +5,15 @@ import { toast } from '@/components/ui/Toast';
 import { setClinicSettingsCache, useClinicSettings } from '@/lib/useClinicSettings';
 import {
   ClinicSettings,
+  DEFAULT_LOCATION,
+  DaySchedule,
   MAX_BUFFER,
   MAX_DURATION,
-  MAX_SESSIONS,
+  MAX_LOCATION_LENGTH,
   MIN_DURATION,
-  SessionWindow,
+  WEEKDAY_DISPLAY_ORDER,
+  WEEKDAY_NAMES,
+  formatSlotLabel,
   generateSlots,
   normalizeClinicSettings,
 } from '@/lib/slots';
@@ -20,14 +24,18 @@ const BUFFER_PRESETS = [0, 5, 10, 15, 20, 30];
 interface Draft {
   slotDuration: string;
   bufferTime: string;
-  sessions: SessionWindow[];
+  /** Index = JS weekday (0 = Sunday ... 6 = Saturday). */
+  weekly: DaySchedule[];
 }
 
 function toDraft(settings: ClinicSettings): Draft {
   return {
     slotDuration: String(settings.slotDuration),
     bufferTime: String(settings.bufferTime),
-    sessions: settings.sessions.map((s) => ({ ...s })),
+    weekly: settings.weekly.map((d) => ({
+      closed: d.closed,
+      sessions: d.sessions.map((s) => ({ ...s, location: s.location || DEFAULT_LOCATION })),
+    })),
   };
 }
 
@@ -55,38 +63,120 @@ export default function SlotSettingsCard({ onSaved }: SlotSettingsCardProps) {
     setDraft((prev) => ({ ...prev, ...patch }));
   };
 
-  const updateSession = (index: number, patch: Partial<SessionWindow>) => {
-    update({
-      sessions: draft.sessions.map((s, i) => (i === index ? { ...s, ...patch } : s)),
-    });
+  // ---- Single "add timing" form -------------------------------------------------
+  const [formDays, setFormDays] = useState<number[]>([1]);
+  const [formStart, setFormStart] = useState('09:30');
+  const [formEnd, setFormEnd] = useState('13:00');
+  const [formLocation, setFormLocation] = useState(DEFAULT_LOCATION);
+  const [editing, setEditing] = useState<{ dow: number; index: number } | null>(null);
+  const [formError, setFormError] = useState('');
+  const [showPreview, setShowPreview] = useState(false);
+
+  const toggleFormDay = (dow: number) => {
+    setFormError('');
+    setFormDays((prev) => (prev.includes(dow) ? prev.filter((d) => d !== dow) : [...prev, dow]));
   };
 
-  const addSession = () => {
-    if (draft.sessions.length >= MAX_SESSIONS) return;
-    const last = draft.sessions[draft.sessions.length - 1];
-    update({
-      sessions: [...draft.sessions, { start: last?.end || '09:00', end: last?.end ? '20:00' : '13:00' }],
-    });
+  const resetForm = () => {
+    setEditing(null);
+    setFormError('');
+    setFormDays([1]);
+    setFormStart('09:30');
+    setFormEnd('13:00');
+    setFormLocation(DEFAULT_LOCATION);
   };
 
-  const removeSession = (index: number) => {
-    update({ sessions: draft.sessions.filter((_, i) => i !== index) });
+  const handleSubmitTiming = () => {
+    setFormError('');
+    if (formDays.length === 0) {
+      setFormError('Select at least one day.');
+      return;
+    }
+    const location = formLocation.trim() || DEFAULT_LOCATION;
+
+    // Start from the current weekly list (minus the entry being edited)
+    const next: DaySchedule[] = draft.weekly.map((d, i) => ({
+      closed: d.closed,
+      sessions: d.sessions.filter((_, idx) => !(editing && editing.dow === i && editing.index === idx)),
+    }));
+    for (const dow of formDays) {
+      next[dow].closed = false;
+      next[dow].sessions.push({ start: formStart, end: formEnd, location });
+    }
+
+    // Validate times, overlaps and minimum length with the shared rules
+    const check = normalizeClinicSettings({
+      slotDuration: Number(draft.slotDuration),
+      bufferTime: Number(draft.bufferTime),
+      weekly: next.map((d) => ({ closed: d.sessions.length === 0, sessions: d.sessions })),
+    });
+    if (!check.settings) {
+      setFormError(check.error || 'Please check the timing.');
+      return;
+    }
+    update({ weekly: check.settings.weekly.map((d) => ({ ...d })) });
+    resetForm();
   };
+
+  const handleEditTiming = (dow: number, index: number) => {
+    const session = draft.weekly[dow].sessions[index];
+    setEditing({ dow, index });
+    setFormDays([dow]);
+    setFormStart(session.start);
+    setFormEnd(session.end);
+    setFormLocation(session.location || DEFAULT_LOCATION);
+    setFormError('');
+  };
+
+  const handleRemoveTiming = (dow: number, index: number) => {
+    const sessions = draft.weekly[dow].sessions.filter((_, i) => i !== index);
+    update({
+      weekly: draft.weekly.map((d, i) => (i === dow ? { closed: sessions.length === 0, sessions } : d)),
+    });
+    if (editing) resetForm();
+  };
+
+  /** Flat list of everything entered, Monday first. */
+  const entries = useMemo(
+    () =>
+      WEEKDAY_DISPLAY_ORDER.flatMap((dow) =>
+        draft.weekly[dow].sessions.map((session, index) => ({ dow, index, session }))
+      ),
+    [draft.weekly]
+  );
+  const closedDayNames = WEEKDAY_DISPLAY_ORDER.filter((d) => draft.weekly[d].sessions.length === 0).map(
+    (d) => WEEKDAY_NAMES[d]
+  );
+
+  // Locations already used, offered as suggestions in the location field
+  const knownLocations = useMemo(() => {
+    const set = new Set<string>([DEFAULT_LOCATION]);
+    draft.weekly.forEach((d) => d.sessions.forEach((x) => x.location && set.add(x.location)));
+    return Array.from(set);
+  }, [draft.weekly]);
 
   const validation = useMemo(
     () =>
       normalizeClinicSettings({
         slotDuration: draft.slotDuration === '' ? NaN : Number(draft.slotDuration),
         bufferTime: draft.bufferTime === '' ? NaN : Number(draft.bufferTime),
-        sessions: draft.sessions,
+        weekly: draft.weekly,
       }),
     [draft]
   );
 
   const previewSlots = useMemo(
-    () => (validation.settings ? generateSlots(validation.settings) : []),
+    () =>
+      validation.settings
+        ? WEEKDAY_DISPLAY_ORDER.map((dow) => {
+            // any real date of that weekday works for a preview
+            const sample = `2026-11-${String(1 + dow).padStart(2, '0')}`; // 1 Nov 2026 is a Sunday
+            return { dow, slots: generateSlots(validation.settings as ClinicSettings, sample) };
+          })
+        : [],
     [validation.settings]
   );
+  const totalPreviewSlots = previewSlots.reduce((n, d) => n + d.slots.length, 0);
 
   const isDirty = useMemo(() => {
     const saved = toDraft(settings);
@@ -128,7 +218,7 @@ export default function SlotSettingsCard({ onSaved }: SlotSettingsCardProps) {
       setDraft(toDraft(data.settings as ClinicSettings));
 
       toast.success(
-        `Appointments are now ${data.settings.slotDuration} min with ${data.settings.bufferTime} min buffer (${data.slots.length} slots/day).`,
+        `Weekly schedule saved: ${data.settings.slotDuration} min appointments with ${data.settings.bufferTime} min buffer.`,
         'Settings Saved'
       );
 
@@ -136,7 +226,7 @@ export default function SlotSettingsCard({ onSaved }: SlotSettingsCardProps) {
         setWarning(
           `${data.offGridCount} upcoming appointment${
             data.offGridCount === 1 ? '' : 's'
-          } were booked at times that are not on the new slot grid. They stay valid and still block overlapping slots, but you may want to reschedule them.`
+          } were booked at times that are not in the new weekly schedule. They stay valid and still block overlapping slots, but you may want to reschedule them.`
         );
       }
 
@@ -197,13 +287,36 @@ export default function SlotSettingsCard({ onSaved }: SlotSettingsCardProps) {
           background: #fff; cursor: pointer; font-weight: 600;
         }
         .slot-settings-reset:disabled { opacity: 0.5; cursor: not-allowed; }
+        .timing-form { border: 1.5px solid var(--line, #e2e8f0); border-radius: 12px; padding: 14px; background: #fff; }
+        .timing-form-days { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+        .timing-day-chip { padding: 7px 14px; border-radius: 999px; border: 1.5px solid var(--line, #e2e8f0); background: #fff; cursor: pointer; font-size: 13px; font-weight: 600; }
+        .timing-day-chip.active { background: var(--primary, #565ACF); border-color: var(--primary, #565ACF); color: #fff; }
+        .timing-day-chip:disabled { cursor: not-allowed; opacity: 0.6; }
+        .timing-form-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
+        .timing-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 600; color: #475569; }
+        .timing-field .admin-input { max-width: 150px; }
+        .timing-field-grow { flex: 1 1 200px; }
+        .timing-field-grow .admin-input { max-width: none; }
+        .timing-form-buttons { display: flex; gap: 8px; }
+        .timing-form-buttons .btn-save-override, .timing-form-buttons .slot-settings-reset { padding: 10px 22px; }
+        .timing-table-wrap { overflow: auto; max-height: 240px; margin-top: 8px; border: 1.5px solid var(--line, #e2e8f0); border-radius: 10px; }
+        .timing-table-wrap table { margin: 0; }
+        .timing-table-wrap thead th { position: sticky; top: 0; z-index: 1; background: #f8fafc; }
+        .slot-settings-preview-scroll { max-height: 260px; overflow-y: auto; padding-right: 6px; }
+        .timing-row-actions { display: flex; gap: 8px; justify-content: flex-end; }
+        .weekday-copy-btn { border: 1.5px solid var(--line, #e2e8f0); background: #fff; border-radius: 8px; padding: 8px 14px; cursor: pointer; font-weight: 600; font-size: 13px; }
+        .weekday-copy-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .weekday-preview-row { display: flex; gap: 12px; align-items: flex-start; margin-top: 10px; }
+        .weekday-preview-name { min-width: 92px; font-size: 13px; font-weight: 700; padding-top: 6px; }
+        .weekday-preview-closed { font-size: 13px; color: #94a3b8; padding-top: 6px; }
         @media (max-width: 720px) { .slot-settings-grid { grid-template-columns: 1fr; } }
       `}</style>
 
-      <h3 className="card-heading">Appointment Duration &amp; Buffer</h3>
+      <h3 className="card-heading">Doctor Timings &amp; Location</h3>
       <p className="card-subhead">
-        Choose how long each appointment lasts and the gap kept between two appointments. Slots on
-        the booking page, admin calendar and reschedule window update automatically.
+        Choose how long each appointment lasts, the gap between appointments, and the day-wise
+        timings with the location where the doctor will be visiting. Slots on the booking page, admin
+        calendar and reschedule window update automatically.
       </p>
 
       <div className="slot-settings-grid">
@@ -266,62 +379,165 @@ export default function SlotSettingsCard({ onSaved }: SlotSettingsCardProps) {
 
       <div className="slot-settings-sessions">
         <label className="slot-settings-label" style={{ fontWeight: 700, fontSize: 13 }}>
-          Working sessions (e.g. morning &amp; evening)
+          {editing ? `Edit timing (${WEEKDAY_NAMES[editing.dow]})` : 'Add doctor timing'}
         </label>
-        {draft.sessions.map((session, index) => (
-          <div className="slot-settings-session-row" key={index}>
-            <input
-              type="time"
-              className="admin-input"
-              value={session.start}
-              onChange={(e) => updateSession(index, { start: e.target.value })}
-              aria-label={`Session ${index + 1} start`}
-            />
-            <span>to</span>
-            <input
-              type="time"
-              className="admin-input"
-              value={session.end}
-              onChange={(e) => updateSession(index, { end: e.target.value })}
-              aria-label={`Session ${index + 1} end`}
-            />
-            <button
-              type="button"
-              className="slot-settings-remove"
-              disabled={draft.sessions.length <= 1}
-              onClick={() => removeSession(index)}
-            >
-              Remove
-            </button>
-          </div>
-        ))}
-        <button
-          type="button"
-          className="slot-settings-add"
-          disabled={draft.sessions.length >= MAX_SESSIONS}
-          onClick={addSession}
-        >
-          + Add session
-        </button>
-      </div>
 
-      <div className="slot-settings-preview">
-        <strong style={{ fontSize: 13 }}>
-          Preview: {previewSlots.length} slot{previewSlots.length === 1 ? '' : 's'} per day
-          {validation.settings
-            ? ` (${validation.settings.slotDuration} min + ${validation.settings.bufferTime} min buffer)`
-            : ''}
-        </strong>
-        {validation.settings ? (
-          <div className="slot-settings-preview-chips">
-            {previewSlots.map((slot) => (
-              <span className="slot-settings-preview-chip" key={slot.value}>
-                {slot.label}
-              </span>
+        <div className="timing-form">
+          <div className="timing-form-days" role="group" aria-label="Days">
+            {WEEKDAY_DISPLAY_ORDER.map((dow) => (
+              <button
+                key={dow}
+                type="button"
+                disabled={!!editing}
+                className={`timing-day-chip ${formDays.includes(dow) ? 'active' : ''}`}
+                onClick={() => toggleFormDay(dow)}
+                title={WEEKDAY_NAMES[dow]}
+              >
+                {WEEKDAY_NAMES[dow].slice(0, 3)}
+              </button>
             ))}
           </div>
+
+          <div className="timing-form-row">
+            <div className="timing-field">
+              <span>From</span>
+              <input
+                type="time"
+                className="admin-input"
+                value={formStart}
+                onChange={(e) => {
+                  setFormError('');
+                  setFormStart(e.target.value);
+                }}
+              />
+            </div>
+            <div className="timing-field">
+              <span>To</span>
+              <input
+                type="time"
+                className="admin-input"
+                value={formEnd}
+                onChange={(e) => {
+                  setFormError('');
+                  setFormEnd(e.target.value);
+                }}
+              />
+            </div>
+            <div className="timing-field timing-field-grow">
+              <span>Location</span>
+              <input
+                type="text"
+                list="doctor-location-options"
+                className="admin-input"
+                placeholder="e.g. Akurdi Clinic"
+                maxLength={MAX_LOCATION_LENGTH}
+                value={formLocation}
+                onChange={(e) => setFormLocation(e.target.value)}
+              />
+              <datalist id="doctor-location-options">
+                {knownLocations.map((loc) => (
+                  <option key={loc} value={loc} />
+                ))}
+              </datalist>
+            </div>
+            <div className="timing-form-buttons">
+              <button type="button" className="btn btn-save-override" onClick={handleSubmitTiming}>
+                {editing ? 'Update' : 'Add'}
+              </button>
+              {editing && (
+                <button type="button" className="slot-settings-reset" onClick={resetForm}>
+                  Cancel
+                </button>
+              )}
+            </div>
+          </div>
+          {formError && <div className="slot-settings-error">{formError}</div>}
+        </div>
+
+        <label className="slot-settings-label" style={{ fontWeight: 700, fontSize: 13, marginTop: 20 }}>
+          Entered timings
+        </label>
+        {entries.length === 0 ? (
+          <p className="field-hint">No timings added yet. Use the form above to add one.</p>
         ) : (
-          <div className="slot-settings-error">{validation.error}</div>
+          <div className="timing-table-wrap">
+            <table className="admin-table timing-table">
+              <thead>
+                <tr>
+                  <th>Day</th>
+                  <th>Time</th>
+                  <th>Location</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {entries.map(({ dow, index, session }) => (
+                  <tr key={`${dow}-${index}`}>
+                    <td>
+                      <strong>{WEEKDAY_NAMES[dow]}</strong>
+                    </td>
+                    <td>
+                      {formatSlotLabel(session.start)} - {formatSlotLabel(session.end)}
+                    </td>
+                    <td>{session.location || DEFAULT_LOCATION}</td>
+                    <td className="timing-row-actions">
+                      <button type="button" className="weekday-copy-btn" onClick={() => handleEditTiming(dow, index)}>
+                        Edit
+                      </button>
+                      <button type="button" className="slot-settings-remove" onClick={() => handleRemoveTiming(dow, index)}>
+                        Remove
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {closedDayNames.length > 0 && entries.length > 0 && (
+          <p className="field-hint" style={{ marginTop: 8 }}>
+            Closed: {closedDayNames.join(', ')}
+          </p>
+        )}
+      </div>
+
+      {/* Slot preview is hidden until asked for */}
+      <div className="slot-settings-preview">
+        <button
+          type="button"
+          className="weekday-copy-btn"
+          disabled={!validation.settings}
+          onClick={() => setShowPreview((v) => !v)}
+          aria-expanded={showPreview}
+        >
+          {showPreview ? 'Hide slot preview' : 'Preview slots'}
+        </button>
+        {!validation.settings && <div className="slot-settings-error">{validation.error}</div>}
+        {showPreview && validation.settings && (
+          <>
+            <p className="field-hint" style={{ marginTop: 10 }}>
+              {totalPreviewSlots} slot{totalPreviewSlots === 1 ? '' : 's'} per week ({validation.settings.slotDuration} min +{' '}
+              {validation.settings.bufferTime} min buffer)
+            </p>
+            <div className="slot-settings-preview-scroll">
+            {previewSlots.map(({ dow, slots }) => (
+              <div className="weekday-preview-row" key={dow}>
+                <span className="weekday-preview-name">{WEEKDAY_NAMES[dow]}</span>
+                {slots.length === 0 ? (
+                  <span className="weekday-preview-closed">Closed</span>
+                ) : (
+                  <div className="slot-settings-preview-chips">
+                    {slots.map((slot) => (
+                      <span className="slot-settings-preview-chip" key={slot.value} title={slot.location}>
+                        {slot.label}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+            </div>
+          </>
         )}
       </div>
 

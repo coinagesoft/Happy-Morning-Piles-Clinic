@@ -90,7 +90,7 @@ export default function ThemedDatePicker({
   disableDoctorLeaves = true,
   disableFullyBooked = true,
 }: ThemedDatePickerProps) {
-  const { slotValues, step } = useClinicSettings();
+  const { settings, step, isClosedOn, slotsForDate } = useClinicSettings();
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -222,7 +222,7 @@ export default function ThemedDatePicker({
         '0'
       )}`;
       const dayDate = new Date(`${iso}T00:00:00`);
-      const isSunday = dayDate.getDay() === 0;
+      const isSunday = isClosedOn(iso); // weekly-off day from the day-wise schedule
       const isPast = minDate ? iso < minDate : iso < todayIso;
       const isToday = iso === todayIso;
       const isSelected = iso === value;
@@ -237,7 +237,7 @@ export default function ThemedDatePicker({
         const activeAppts = appointments.filter((a) => a.date === iso && a.status !== 'cancelled');
         const blockedSlots = override?.type === 'specific_slots' ? (override.blockedSlots || []) : [];
         isFullyBooked = areAllSlotsOccupied(
-          slotValues,
+          slotsForDate(iso).map((slot) => slot.value),
           activeAppts.map((a) => a.time),
           blockedSlots,
           step
@@ -283,8 +283,9 @@ export default function ThemedDatePicker({
     disableWeeklyOff,
     disableDoctorLeaves,
     disableFullyBooked,
-    slotValues,
+    settings,
     step,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   ]);
 
   const display = useMemo(() => formatDateDisplay(value), [value]);

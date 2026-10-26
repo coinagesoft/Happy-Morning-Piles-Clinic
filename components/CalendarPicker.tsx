@@ -8,6 +8,8 @@ interface CalendarPickerProps {
   minDate: string; // "YYYY-MM-DD" (tomorrow)
   disabled?: boolean;
   doctorBlockedDates?: { date: string; reason: string }[];
+  /** JS weekday numbers (0 = Sunday) on which the doctor does not sit. Defaults to Sunday. */
+  closedWeekdays?: number[];
 }
 
 const MONTH_NAMES = [
@@ -41,6 +43,7 @@ export default function CalendarPicker({
   minDate,
   disabled = false,
   doctorBlockedDates = [],
+  closedWeekdays = [0],
 }: CalendarPickerProps) {
   // Determine current today in YYYY-MM-DD
   const todayIso = useMemo(() => {
@@ -132,7 +135,7 @@ export default function CalendarPicker({
       const dayDate = new Date(`${iso}T00:00:00`);
       const dayOfWeek = dayDate.getDay(); // 0 is Sun
 
-      const isSunday = dayOfWeek === 0;
+      const isSunday = closedWeekdays.includes(dayOfWeek); // "closed day"
       const isPast = todayIso ? iso < todayIso : false;
       const isToday = todayIso ? iso === todayIso : false;
       const isBeforeMin = minDate ? iso < minDate : false;
@@ -147,7 +150,7 @@ export default function CalendarPicker({
 
       let reason = '';
       if (isSunday) {
-        reason = 'Clinic closed on Sundays';
+        reason = `Doctor does not sit on ${WEEKDAYS[dayOfWeek === 0 ? 6 : dayOfWeek - 1].full}s`;
       } else if (isDoctorLeave) {
         reason = `Doctor on leave: ${doctorBlocked?.reason || 'Unavailable'}`;
       } else if (isToday) {
@@ -173,7 +176,7 @@ export default function CalendarPicker({
     }
 
     return days;
-  }, [viewYear, viewMonth, todayIso, minDate, selectedDate, disabled, doctorBlockedDates]);
+  }, [viewYear, viewMonth, todayIso, minDate, selectedDate, disabled, doctorBlockedDates, closedWeekdays.join(',')]);
 
   return (
     <div className="bkc">
@@ -211,15 +214,18 @@ export default function CalendarPicker({
       </div>
 
       <div className="bkc-weekdays" role="row">
-        {WEEKDAYS.map((wd) => (
+        {WEEKDAYS.map((wd, wdIndex) => {
+          const isClosedWeekday = closedWeekdays.includes((wdIndex + 1) % 7);
+          return (
           <div
             key={wd.short}
-            className={`bkc-weekday ${wd.isSunday ? 'is-sun' : ''}`}
-            title={wd.isSunday ? 'Clinic closed on Sundays' : wd.full}
+            className={`bkc-weekday ${isClosedWeekday ? 'is-sun' : ''}`}
+            title={isClosedWeekday ? `Doctor does not sit on ${wd.full}s` : wd.full}
           >
             {wd.short}
           </div>
-        ))}
+          );
+        })}
       </div>
 
       <div className="bkc-grid" role="grid" aria-label="Appointment date calendar">

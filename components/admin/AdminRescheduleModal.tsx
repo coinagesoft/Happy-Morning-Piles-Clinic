@@ -31,7 +31,7 @@ export default function AdminRescheduleModal({
   appointments = [],
   overrides = [],
 }: AdminRescheduleModalProps) {
-  const { slots: ALL_CLINIC_SLOTS } = useClinicSettings();
+  const { slotsForDate, locationFor } = useClinicSettings();
   // Today in Asia/Kolkata
   const todayIso = useMemo(() => {
     return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
@@ -39,6 +39,9 @@ export default function AdminRescheduleModal({
 
   const [newDate, setNewDate] = useState('');
   const [newTime, setNewTime] = useState('');
+  // Only the chosen weekday's slots (day-wise timings), each with its location
+  const daySlots = slotsForDate(newDate);
+  const newLocation = newTime ? locationFor(newDate, newTime) : undefined;
   const [consultationType, setConsultationType] = useState<'offline' | 'online'>('offline');
   const [reasonChoice, setReasonChoice] = useState(RESCHEDULE_REASONS[0]);
   const [customReason, setCustomReason] = useState('');
@@ -66,6 +69,13 @@ export default function AdminRescheduleModal({
       setSuccessResult(null);
     }
   }, [appointment]);
+
+  // If the new date is a different weekday, drop a time that is not in that day's timings
+  useEffect(() => {
+    if (!newDate) return;
+    setNewTime((curr) => (curr && !slotsForDate(newDate).some((x) => x.value === curr) ? '' : curr));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [newDate]);
 
   // Handle ESC key and body scroll lock
   useEffect(() => {
@@ -409,7 +419,10 @@ export default function AdminRescheduleModal({
                   {isLoadingSlots && <small className="label-loading"> (Checking slots...)</small>}
                 </label>
                 <div className="slots-select-grid">
-                  {ALL_CLINIC_SLOTS.map((slot) => {
+                  {newDate && daySlots.length === 0 && (
+                    <p className="field-hint">The doctor does not sit on this day. Please pick another date.</p>
+                  )}
+                  {daySlots.map((slot) => {
                     // It's booked if it's in bookedSlots and NOT the appointment's own current slot on the current date
                     const isOwnCurrentSlot =
                       newDate === appointment.date && slot.value === appointment.time;
@@ -427,12 +440,20 @@ export default function AdminRescheduleModal({
                         onClick={() => setNewTime(slot.value)}
                       >
                         {slot.label}
+                        {slot.location && new Set(daySlots.map((x) => x.location)).size > 1 && (
+                          <span className="slot-pill-loc">{slot.location}</span>
+                        )}
                         {isOwnCurrentSlot && <span className="current-slot-tag">Current</span>}
                         {isBooked && <span className="booked-badge">Booked</span>}
                       </button>
                     );
                   })}
                 </div>
+                {newLocation && (
+                  <p className="field-hint" style={{ marginTop: 8 }}>
+                    Doctor location for this slot: <strong>{newLocation}</strong>
+                  </p>
+                )}
               </div>
 
               {/* 4. Reason for Reschedule */}

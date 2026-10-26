@@ -28,6 +28,7 @@ interface AppointmentRow extends RowDataPacket {
   paid_at: string | null;
   notes: string | null;
   consultation_type?: 'online' | 'offline' | null;
+  location?: string | null;
   created_at: string;
 }
 
@@ -81,6 +82,7 @@ function mapRowToAppointment(row: AppointmentRow): Appointment {
     paidAt: row.paid_at || row.created_at,
     notes: row.notes || '',
     consultationType: isOffline ? 'offline' : 'online',
+    location: row.location || undefined,
   };
 }
 
@@ -394,4 +396,3 @@ export async function getBulkCalendarAvailability() {
     timestamp: Date.now(),
   };
 }
-

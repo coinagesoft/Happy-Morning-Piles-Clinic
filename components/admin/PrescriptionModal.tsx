@@ -3,7 +3,15 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Appointment } from '@/lib/storage';
 import { toast } from '@/components/ui/Toast';
-import { Prescription, PrescriptionMedicine, emptyMedicine } from '@/lib/prescriptionTemplate';
+import {
+  Prescription,
+  PrescriptionMedicine,
+  emptyMedicine,
+  describeSchedule,
+  describeTiming,
+  formatRxDate,
+  renderPrescriptionHtml,
+} from '@/lib/prescriptionTemplate';
 import { Medicine } from '@/lib/medicines';
 import { IconCross, IconPlus, IconTrash, IconMail, IconRefresh, IconFileText, IconPill } from './AdminIcons';
 
@@ -15,6 +23,16 @@ interface PrescriptionModalProps {
   adminFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
   onClose: () => void;
   availableMedicines?: Medicine[];
+}
+
+function scheduleText(m: Pick<PrescriptionMedicine, 'morning' | 'afternoon' | 'night'>): string {
+  return `${m.morning ? 1 : 0}-${m.afternoon ? 1 : 0}-${m.night ? 1 : 0}`;
+}
+
+/** "101", "1-0-1", "1 0 1" -> morning/afternoon/night flags (missing positions = off). */
+function parseSchedule(text: string): Pick<PrescriptionMedicine, 'morning' | 'afternoon' | 'night'> {
+  const d = text.replace(/[^01]/g, '');
+  return { morning: d[0] === '1', afternoon: d[1] === '1', night: d[2] === '1' };
 }
 
 function todayIst(): string {
@@ -51,9 +69,12 @@ interface SuggestInputProps {
   options: string[];
   placeholder?: string;
   className?: string;
+  inputRef?: React.Ref<HTMLInputElement>;
+  /** Called when Enter is pressed and no suggestion is highlighted. */
+  onEnter?: () => void;
 }
 
-function SuggestInput({ value, onChange, options, placeholder, className }: SuggestInputProps) {
+function SuggestInput({ value, onChange, options, placeholder, className, inputRef, onEnter }: SuggestInputProps) {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
 
@@ -81,6 +102,23 @@ function SuggestInput({ value, onChange, options, placeholder, className }: Sugg
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    // Fast entry: Tab accepts the best match for what was typed, then moves to the next field
+    if (e.key === 'Tab' && !e.shiftKey && showList && q && filtered.length > 0) {
+      const pick = active >= 0 ? filtered[active] : filtered[0];
+      if (pick && pick.toLowerCase() !== q) onChange(pick);
+      setOpen(false);
+      setActive(-1);
+      return;
+    }
+    if (e.key === 'Enter' && (!showList || active < 0)) {
+      if (onEnter) {
+        e.preventDefault();
+        e.stopPropagation(); // the form-level Enter handler must not add it a second time
+        setOpen(false);
+        onEnter();
+      }
+      return;
+    }
     if (!showList) {
       if (e.key === 'ArrowDown') setOpen(true);
       return;
@@ -93,6 +131,7 @@ function SuggestInput({ value, onChange, options, placeholder, className }: Sugg
       setActive((i) => (i <= 0 ? filtered.length - 1 : i - 1));
     } else if (e.key === 'Enter' && active >= 0) {
       e.preventDefault();
+      e.stopPropagation();
       select(filtered[active]);
     } else if (e.key === 'Escape') {
       setOpen(false);
@@ -103,6 +142,7 @@ function SuggestInput({ value, onChange, options, placeholder, className }: Sugg
   return (
     <div style={{ position: 'relative', flex: 1, minWidth: 0 }}>
       <input
+        ref={inputRef}
         className={className}
         style={{ width: '100%' }}
         placeholder={placeholder}
@@ -182,7 +222,19 @@ export default function PrescriptionModal({
   const [prescription, setPrescription] = useState<Prescription | null>(null);
   const [date, setDate] = useState(todayIst());
   const [diagnosis, setDiagnosis] = useState('');
-  const [medicines, setMedicines] = useState<PrescriptionMedicine[]>([emptyMedicine()]);
+  const [medicines, setMedicines] = useState<PrescriptionMedicine[]>([]);
+  // Single entry form (above the table) + which table row is being edited
+  const [entry, setEntry] = useState<PrescriptionMedicine>(emptyMedicine());
+  const [editIndex, setEditIndex] = useState<number | null>(null);
+  // Earlier prescriptions of this patient
+  const [history, setHistory] = useState<Prescription[]>([]);
+  const [showAllHistory, setShowAllHistory] = useState(false);
+  // Preview overlay (current form, or an old prescription)
+  const [previewRx, setPreviewRx] = useState<Prescription | null>(null);
+  const previewFrameRef = useRef<HTMLIFrameElement | null>(null);
+  const nameInputRef = useRef<HTMLInputElement | null>(null);
+  const tableWrapRef = useRef<HTMLDivElement | null>(null);
+  const [scheduleDraft, setScheduleDraft] = useState<string | null>(null);
   const [advice, setAdvice] = useState('');
   const [followUp, setFollowUp] = useState('');
   const [sendTo, setSendTo] = useState('');
@@ -201,6 +253,11 @@ export default function PrescriptionModal({
     setPrescription(null);
     setDirty(false);
     setSendTo(appointment.email || '');
+    setHistory([]);
+    setShowAllHistory(false);
+    setEntry(emptyMedicine());
+    setEditIndex(null);
+    setPreviewRx(null);
 
     (async () => {
       try {
@@ -210,16 +267,17 @@ export default function PrescriptionModal({
         if (!res.ok) throw new Error(data.error || 'Failed to load prescription');
         const rx: Prescription | null = data.prescription;
         setPrescription(rx);
+        setHistory(Array.isArray(data.history) ? data.history : []);
         if (rx) {
           setDate(rx.date);
           setDiagnosis(rx.diagnosis);
-          setMedicines(rx.medicines.length ? rx.medicines : [emptyMedicine()]);
+          setMedicines(rx.medicines);
           setAdvice(rx.advice);
           setFollowUp(rx.followUp);
         } else {
           setDate(todayIst());
           setDiagnosis(appointment.reason || '');
-          setMedicines([emptyMedicine()]);
+          setMedicines([]);
           setAdvice('');
           setFollowUp('');
         }
@@ -234,6 +292,14 @@ export default function PrescriptionModal({
       cancelled = true;
     };
   }, [appointment, adminFetch]);
+
+  // Ready to type: put the cursor in the medicine name as soon as the form is shown
+  useEffect(() => {
+    if (appointment && !loading) {
+      const t = setTimeout(() => nameInputRef.current?.focus(), 60);
+      return () => clearTimeout(t);
+    }
+  }, [appointment, loading]);
 
   // Suggestions come ONLY from the clinic's medicine database
   const remedyOptions = useMemo(() => {
@@ -302,43 +368,130 @@ export default function PrescriptionModal({
 
   if (!appointment) return null;
 
-  const updateMed = (index: number, patch: Partial<PrescriptionMedicine>) => {
-    setMedicines((prev) =>
-      prev.map((m, i) => {
-        if (i !== index) return m;
-        const updated = { ...m, ...patch };
-        // If remedy name was changed and potency is currently empty, check if remedy has default potencies
-        if (patch.name && !m.potency) {
-          const matchedMed = (availableMedicines || []).find(
-            (am) => am.name.trim().toLowerCase() === patch.name!.trim().toLowerCase()
-          );
-          if (matchedMed && matchedMed.potency) {
-            const firstPotency = matchedMed.potency.split(',')[0].trim();
-            if (firstPotency) {
-              updated.potency = firstPotency;
-            }
-          }
-        }
-        return updated;
-      })
-    );
-    setDirty(true);
+  /** Updates the single entry form (auto-fills the first saved potency of a chosen remedy). */
+  const updateEntry = (patch: Partial<PrescriptionMedicine>) => {
+    setEntry((prev) => {
+      const updated = { ...prev, ...patch };
+      if (patch.name && !prev.potency) {
+        const matchedMed = (availableMedicines || []).find(
+          (am) => am.name.trim().toLowerCase() === patch.name!.trim().toLowerCase()
+        );
+        const firstPotency = matchedMed?.potency?.split(',')[0].trim();
+        if (firstPotency) updated.potency = firstPotency;
+      }
+      return updated;
+    });
   };
 
-  const addMed = () => {
-    setMedicines((prev) => [...prev, emptyMedicine()]);
+  /** Adds the entry to the table (or updates the row being edited). */
+  const submitEntry = () => {
+    if (!entry.name.trim()) {
+      toast.error('Enter the medicine name first.');
+      return;
+    }
+    setMedicines((prev) =>
+      editIndex === null ? [...prev, { ...entry }] : prev.map((m, i) => (i === editIndex ? { ...entry } : m))
+    );
+    // Keep quantity / dose / food / duration for the next medicine (usually the same), clear the rest
+    setEntry({
+      ...emptyMedicine(),
+      quantity: entry.quantity,
+      morning: entry.morning,
+      afternoon: entry.afternoon,
+      night: entry.night,
+      timing: entry.timing,
+      duration: entry.duration,
+    });
+    setScheduleDraft(null);
+    setEditIndex(null);
     setDirty(true);
+    setTimeout(() => {
+      nameInputRef.current?.focus();
+      if (tableWrapRef.current) tableWrapRef.current.scrollTop = tableWrapRef.current.scrollHeight;
+    }, 30);
+  };
+
+  /** Keyboard shortcuts: Enter adds the medicine, Ctrl+Enter saves, Alt+P previews. */
+  const handleBodyKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      e.preventDefault();
+      void handleSave();
+      return;
+    }
+    if (e.altKey && (e.key === 'p' || e.key === 'P')) {
+      e.preventDefault();
+      openPreview();
+      return;
+    }
+    const target = e.target as HTMLElement;
+    if (e.key === 'Enter' && target.closest('.rx-entry-form') && target.tagName !== 'BUTTON') {
+      e.preventDefault();
+      submitEntry();
+    }
+  };
+
+  const editMed = (index: number) => {
+    setEntry({ ...medicines[index] });
+    setScheduleDraft(null);
+    setEditIndex(index);
+    setTimeout(() => nameInputRef.current?.focus(), 30);
+  };
+
+  const cancelEdit = () => {
+    setEntry(emptyMedicine());
+    setScheduleDraft(null);
+    setEditIndex(null);
+    setTimeout(() => nameInputRef.current?.focus(), 30);
   };
 
   const removeMed = (index: number) => {
-    setMedicines((prev) => (prev.length === 1 ? [emptyMedicine()] : prev.filter((_, i) => i !== index)));
+    setMedicines((prev) => prev.filter((_, i) => i !== index));
+    if (editIndex !== null) cancelEdit();
     setDirty(true);
   };
 
-  const hasMedicine = medicines.some((m) => m.name.trim());
+  const hasMedicine = medicines.length > 0;
+
+  /** Preview of what is currently typed in the form (not saved yet). */
+  const buildPreviewRx = (): Prescription => ({
+    id: prescription?.id || 'preview',
+    appointmentId: appointment.id,
+    patientName: appointment.fullName,
+    patientEmail: appointment.email,
+    patientPhone: appointment.phone,
+    patientAge: appointment.age,
+    date,
+    diagnosis,
+    medicines: medicines.filter((m) => m.name.trim()),
+    advice,
+    followUp,
+    createdAt: prescription?.createdAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  });
+
+  const openPreview = () => {
+    if (!hasMedicine) {
+      toast.error('Add at least one medicine to preview.');
+      return;
+    }
+    setPreviewRx(buildPreviewRx());
+  };
+
+  /** Copies medicines (and diagnosis if empty) of an earlier prescription into this one. */
+  const reuseFromHistory = (rx: Prescription) => {
+    setMedicines(rx.medicines.map((m) => ({ ...m })));
+    if (!diagnosis.trim()) setDiagnosis(rx.diagnosis);
+    if (!advice.trim()) setAdvice(rx.advice);
+    setDirty(true);
+    toast.success(`Copied ${rx.medicines.length} medicine${rx.medicines.length === 1 ? '' : 's'} from ${formatRxDate(rx.date)}.`);
+  };
 
   /** Saves the current form; returns the saved prescription, or null on failure. */
   const save = async (silent = false): Promise<Prescription | null> => {
+    if (entry.name.trim()) {
+      toast.error('Click "Add" to put the medicine you typed into the list first.');
+      return null;
+    }
     if (!hasMedicine) {
       toast.error('Add at least one medicine first.');
       return null;
@@ -493,7 +646,43 @@ export default function PrescriptionModal({
             <IconRefresh size={20} /> Loading…
           </div>
         ) : (
-          <div className="rx-body">
+          <div className="rx-body" onKeyDown={handleBodyKeyDown}>
+            {history.length > 0 && (
+              <div className="rx-history">
+                <div className="rx-history-head">
+                  <strong>Last prescription · {formatRxDate(history[0].date)}</strong>
+                  {history.length > 1 && (
+                    <button type="button" className="rx-table-btn" onClick={() => setShowAllHistory((v) => !v)}>
+                      {showAllHistory ? 'Hide history' : `All history (${history.length})`}
+                    </button>
+                  )}
+                </div>
+                {(showAllHistory ? history : history.slice(0, 1)).length > 0 && (
+                  <div className="rx-history-list">
+                    {(showAllHistory ? history : history.slice(0, 1)).map((h) => (
+                      <div className="rx-history-item" key={h.id}>
+                        <div className="rx-history-main">
+                          <span className="rx-history-date">{formatRxDate(h.date)}</span>
+                          {h.diagnosis ? <span className="rx-history-diag">{h.diagnosis}</span> : null}
+                          <span className="rx-history-meds">
+                            {h.medicines.map((m) => `${m.name}${m.potency ? ` ${m.potency}` : ''}`).join(', ') || 'No medicines'}
+                          </span>
+                        </div>
+                        <div className="rx-history-actions">
+                          <button type="button" className="rx-table-btn" onClick={() => setPreviewRx(h)}>
+                            View
+                          </button>
+                          <button type="button" className="rx-table-btn" onClick={() => reuseFromHistory(h)}>
+                            Copy medicines
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="rx-row-2">
               <label className="rx-field">
                 <span>Date</span>
@@ -511,104 +700,175 @@ export default function PrescriptionModal({
             </div>
 
             <div className="rx-section-title">
-              <span>Medicines</span>
-              <button type="button" className="rx-add-btn" onClick={addMed}>
-                <IconPlus /> Add medicine
-              </button>
+              <span>{editIndex === null ? 'Add medicine' : `Edit medicine #${editIndex + 1}`}</span>
             </div>
 
-            {medicines.map((m, i) => (
-              <div className="rx-med-card" key={i}>
-                <div className="rx-med-top">
-                  <span className="rx-med-num">{i + 1}</span>
+            <div className="rx-med-card rx-entry-form">
+              <div className="rx-quick-grid">
+                <label className="rx-field rx-q-name">
+                  <span>Medicine</span>
                   <SuggestInput
-                    className="rx-input rx-med-name"
-                    placeholder="Type medicine name…"
+                    className="rx-input"
+                    placeholder="Type name, Tab to accept"
                     options={remedyOptions}
-                    value={m.name}
-                    onChange={(v) => updateMed(i, { name: v })}
+                    value={entry.name}
+                    onChange={(v) => updateEntry({ name: v })}
+                    inputRef={nameInputRef}
+                    onEnter={submitEntry}
                   />
+                </label>
+                <label className="rx-field rx-q-potency">
+                  <span>Potency</span>
                   <SuggestInput
-                    className="rx-input rx-med-potency"
-                    placeholder="Potency"
-                    options={potencyOptionsFor(m.name)}
-                    value={m.potency}
-                    onChange={(v) => updateMed(i, { potency: v })}
+                    className="rx-input"
+                    placeholder="30C"
+                    options={potencyOptionsFor(entry.name)}
+                    value={entry.potency}
+                    onChange={(v) => updateEntry({ potency: v })}
+                    onEnter={submitEntry}
                   />
-                  <button type="button" className="rx-med-remove" onClick={() => removeMed(i)} title="Remove medicine">
-                    <IconTrash size={14} />
+                </label>
+                <label className="rx-field rx-q-qty">
+                  <span>Quantity</span>
+                  <input
+                    type="text"
+                    placeholder="4 pills"
+                    value={entry.quantity}
+                    onChange={(e) => updateEntry({ quantity: e.target.value })}
+                  />
+                </label>
+                <div className="rx-field rx-q-dose">
+                  <span>Dose M-A-N</span>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="1-0-1"
+                    maxLength={5}
+                    value={scheduleDraft ?? scheduleText(entry)}
+                    title="Morning-Afternoon-Night. Type 101 for morning + night, 111 for all three, 100 for morning only"
+                    onChange={(e) => {
+                      setScheduleDraft(e.target.value);
+                      updateEntry(parseSchedule(e.target.value));
+                    }}
+                    onBlur={() => setScheduleDraft(null)}
+                  />
+                  <div className="rx-chips rx-chips-mini" aria-hidden="true">
+                    {(
+                      [
+                        ['morning', 'M'],
+                        ['afternoon', 'A'],
+                        ['night', 'N'],
+                      ] as const
+                    ).map(([key, label]) => (
+                      <button
+                        type="button"
+                        key={key}
+                        tabIndex={-1}
+                        className={`rx-chip ${entry[key] ? 'on' : ''}`}
+                        onClick={() => {
+                          setScheduleDraft(null);
+                          updateEntry({ [key]: !entry[key] } as Partial<PrescriptionMedicine>);
+                        }}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <label className="rx-field rx-q-food">
+                  <span>Food</span>
+                  <select
+                    value={entry.timing}
+                    onChange={(e) => updateEntry({ timing: e.target.value as PrescriptionMedicine['timing'] })}
+                  >
+                    <option value="any">Any time</option>
+                    <option value="before">Before food</option>
+                    <option value="after">After food</option>
+                    <option value="with">With food</option>
+                  </select>
+                </label>
+                <label className="rx-field rx-q-duration">
+                  <span>Duration</span>
+                  <input
+                    type="text"
+                    placeholder="7 days"
+                    value={entry.duration}
+                    onChange={(e) => updateEntry({ duration: e.target.value })}
+                  />
+                </label>
+                <label className="rx-field rx-q-note">
+                  <span>Special instructions (optional)</span>
+                  <input
+                    type="text"
+                    placeholder="e.g. Dissolve under the tongue, avoid mint/coffee 30 min before"
+                    value={entry.instructions}
+                    onChange={(e) => updateEntry({ instructions: e.target.value })}
+                  />
+                </label>
+                <div className="rx-q-actions">
+                  {editIndex !== null && (
+                    <button type="button" className="rx-btn rx-btn-ghost" onClick={cancelEdit}>
+                      Cancel
+                    </button>
+                  )}
+                  <button type="button" className="rx-add-btn" onClick={submitEntry}>
+                    <IconPlus /> {editIndex === null ? 'Add' : 'Update'}
                   </button>
                 </div>
-
-                <div className="rx-med-grid">
-                  <label className="rx-field">
-                    <span>Quantity</span>
-                    <input
-                      type="text"
-                      placeholder="e.g. 4 pills / 5 drops"
-                      value={m.quantity}
-                      onChange={(e) => updateMed(i, { quantity: e.target.value })}
-                    />
-                  </label>
-
-                  <div className="rx-field">
-                    <span>When to take</span>
-                    <div className="rx-chips">
-                      {(
-                        [
-                          ['morning', 'Morning'],
-                          ['afternoon', 'Afternoon'],
-                          ['night', 'Night'],
-                        ] as const
-                      ).map(([key, label]) => (
-                        <button
-                          type="button"
-                          key={key}
-                          className={`rx-chip ${m[key] ? 'on' : ''}`}
-                          aria-pressed={m[key]}
-                          onClick={() => updateMed(i, { [key]: !m[key] } as Partial<PrescriptionMedicine>)}
-                        >
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <label className="rx-field">
-                    <span>Food</span>
-                    <select
-                      value={m.timing}
-                      onChange={(e) => updateMed(i, { timing: e.target.value as PrescriptionMedicine['timing'] })}
-                    >
-                      <option value="any">No restriction</option>
-                      <option value="before">Before food</option>
-                      <option value="after">After food</option>
-                      <option value="with">With food</option>
-                    </select>
-                  </label>
-
-                  <label className="rx-field">
-                    <span>Duration</span>
-                    <input
-                      type="text"
-                      placeholder="e.g. 7 days"
-                      value={m.duration}
-                      onChange={(e) => updateMed(i, { duration: e.target.value })}
-                    />
-                  </label>
-
-                  <label className="rx-field rx-span-all">
-                    <span>Special instructions (optional)</span>
-                    <input
-                      type="text"
-                      placeholder="e.g. Dissolve under the tongue, avoid mint/coffee 30 min before"
-                      value={m.instructions}
-                      onChange={(e) => updateMed(i, { instructions: e.target.value })}
-                    />
-                  </label>
-                </div>
               </div>
-            ))}
+              <p className="rx-shortcuts">
+                <kbd>Tab</kbd> next field &nbsp;·&nbsp; <kbd>Enter</kbd> add medicine &nbsp;·&nbsp; <kbd>Ctrl</kbd>+<kbd>Enter</kbd> save
+                &nbsp;·&nbsp; <kbd>Alt</kbd>+<kbd>P</kbd> preview &nbsp;·&nbsp; dose: type <kbd>101</kbd> for morning + night
+              </p>
+            </div>
+
+            <div className="rx-section-title">
+              <span>Prescribed medicines ({medicines.length})</span>
+            </div>
+            {medicines.length === 0 ? (
+              <p className="rx-empty">No medicines added yet. Fill the form above and click “Add to prescription”.</p>
+            ) : (
+              <div className="rx-table-wrap" ref={tableWrapRef}>
+                <table className="rx-table">
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>Medicine</th>
+                      <th>Qty</th>
+                      <th>When</th>
+                      <th>Duration</th>
+                      <th />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {medicines.map((m, i) => (
+                      <tr key={i} className={editIndex === i ? 'is-editing' : ''}>
+                        <td>{i + 1}</td>
+                        <td>
+                          <strong>{m.name}</strong>
+                          {m.potency ? <span className="rx-table-potency"> {m.potency}</span> : null}
+                          {m.instructions ? <div className="rx-table-note">{m.instructions}</div> : null}
+                        </td>
+                        <td>{m.quantity || '—'}</td>
+                        <td>
+                          {describeSchedule(m)}
+                          {describeTiming(m.timing) ? <div className="rx-table-note">{describeTiming(m.timing)}</div> : null}
+                        </td>
+                        <td>{m.duration || '—'}</td>
+                        <td className="rx-table-actions">
+                          <button type="button" className="rx-table-btn" onClick={() => editMed(i)}>
+                            Edit
+                          </button>
+                          <button type="button" className="rx-med-remove" onClick={() => removeMed(i)} title="Remove medicine">
+                            <IconTrash size={14} />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
 
             <label className="rx-field">
               <span>Advice / Diet</span>
@@ -646,6 +906,9 @@ export default function PrescriptionModal({
             Close
           </button>
           <div className="rx-footer-actions">
+            <button type="button" className="rx-btn rx-btn-outline" onClick={openPreview} disabled={busy !== null || loading}>
+              <IconFileText size={14} /> Preview
+            </button>
             <button type="button" className="rx-btn rx-btn-outline" onClick={handleSave} disabled={busy !== null || loading}>
               {busy === 'save' ? 'Saving…' : 'Save'}
             </button>
@@ -664,6 +927,37 @@ export default function PrescriptionModal({
           </div>
         </div>
       </aside>
+
+      {previewRx && (
+        <div className="rx-preview-overlay" onClick={() => setPreviewRx(null)} role="dialog" aria-modal="true" aria-label="Prescription preview">
+          <div className="rx-preview-box" onClick={(e) => e.stopPropagation()}>
+            <div className="rx-preview-bar">
+              <strong>
+                Prescription preview · {formatRxDate(previewRx.date)}
+                {previewRx.id !== 'preview' && previewRx.appointmentId !== appointment.id ? ' (previous visit)' : ''}
+              </strong>
+              <div className="rx-preview-bar-actions">
+                <button
+                  type="button"
+                  className="rx-btn rx-btn-outline"
+                  onClick={() => previewFrameRef.current?.contentWindow?.print()}
+                >
+                  Print
+                </button>
+                <button type="button" className="rx-btn rx-btn-ghost" onClick={() => setPreviewRx(null)}>
+                  Close
+                </button>
+              </div>
+            </div>
+            <iframe
+              ref={previewFrameRef}
+              title="Prescription preview"
+              className="rx-preview-frame"
+              srcDoc={renderPrescriptionHtml(previewRx)}
+            />
+          </div>
+        </div>
+      )}
 
       {waPanelOpen && (
         <div

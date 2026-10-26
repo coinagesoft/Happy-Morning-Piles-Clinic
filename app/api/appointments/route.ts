@@ -17,7 +17,14 @@ import {
 } from '@/lib/availability';
 import { getBulkCalendarAvailability } from '@/lib/cache';
 import { getClinicSettings, isTimeSlotTaken } from '@/lib/clinicSettings';
-import { generateSlots, getSlotStep, expandBookedTimes } from '@/lib/slots';
+import {
+  generateSlots,
+  getSlotStep,
+  expandBookedTimes,
+  isClinicClosedOn,
+  getWeekday,
+  WEEKDAY_NAMES,
+} from '@/lib/slots';
 import { formatSlotLabel } from '@/lib/slots';
 import { CLINIC } from '@/lib/clinicInfo';
 import { isMsg91ConfirmationConfigured, sendMsg91WhatsApp } from '@/lib/msg91';
@@ -53,7 +60,8 @@ export async function GET(request: NextRequest) {
   }
 
   const settings = await getClinicSettings();
-  const slotValues = generateSlots(settings).map((s) => s.value);
+  const daySlots = generateSlots(settings, date);
+  const slotValues = daySlots.map((s) => s.value);
   const step = getSlotStep(settings);
 
   const [doctorDateBlock, doctorBlockedSlots, dbBookedTimes] = await Promise.all([
@@ -71,6 +79,8 @@ export async function GET(request: NextRequest) {
   return NextResponse.json(
     {
       date,
+      isClinicClosed: isClinicClosedOn(settings, date),
+      slots: daySlots,
       bookedSlots: allBookedSlots,
       doctorBlockedSlots,
       isDoctorBlocked: doctorDateBlock.blocked,
@@ -207,10 +217,19 @@ export async function POST(request: NextRequest) {
     }
 
     const settings = await getClinicSettings();
-    const slotValues = generateSlots(settings).map((s) => s.value);
+    if (isClinicClosedOn(settings, date)) {
+      return NextResponse.json(
+        {
+          error: `The doctor does not take appointments on ${WEEKDAY_NAMES[getWeekday(date)]}s. Please choose another date.`,
+        },
+        { status: 400 }
+      );
+    }
+    const daySlots = generateSlots(settings, date);
+    const slotValues = daySlots.map((s) => s.value);
     if (!slotValues.includes(time)) {
       return NextResponse.json(
-        { error: `${time} is not a valid appointment slot. Please select one of the available slots.` },
+        { error: `${time} is not an available appointment slot on ${WEEKDAY_NAMES[getWeekday(date)]}. Please select one of the available slots.` },
         { status: 400 }
       );
     }
@@ -258,6 +277,7 @@ export async function POST(request: NextRequest) {
       paymentId: paymentId.trim(),
       paidAt: new Date().toISOString(),
       notes: '',
+      location: daySlots.find((slot) => slot.value === time)?.location,
     };
 
     let meetLink = '';
