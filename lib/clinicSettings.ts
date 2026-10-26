@@ -17,10 +17,11 @@ interface ClinicSettingsRow extends RowDataPacket {
   updated_at: string;
 }
 
-declare global {
-  // eslint-disable-next-line no-var
-  var __clinicSettingsCache: { data: ClinicSettings; timestamp: number } | undefined;
-}
+// Cache lives on globalThis so it survives hot reloads. It is accessed through a local
+// cast instead of `declare global`, which avoids duplicate-declaration type errors.
+const clinicSettingsGlobal = globalThis as unknown as {
+  __clinicSettingsCache?: { data: ClinicSettings; timestamp: number };
+};
 
 const SETTINGS_CACHE_TTL_MS = 10_000;
 
@@ -29,7 +30,7 @@ function cloneDefaults(): ClinicSettings {
 }
 
 export async function getClinicSettings(forceFresh = false): Promise<ClinicSettings> {
-  const cached = global.__clinicSettingsCache;
+  const cached = clinicSettingsGlobal.__clinicSettingsCache;
   if (!forceFresh && cached && Date.now() - cached.timestamp < SETTINGS_CACHE_TTL_MS) {
     return cached.data;
   }
@@ -58,7 +59,7 @@ export async function getClinicSettings(forceFresh = false): Promise<ClinicSetti
       if (parsed.settings) settings = parsed.settings;
     }
 
-    global.__clinicSettingsCache = { data: settings, timestamp: Date.now() };
+    clinicSettingsGlobal.__clinicSettingsCache = { data: settings, timestamp: Date.now() };
     return settings;
   } catch (err) {
     console.error('[ClinicSettings] Failed to load, using defaults:', err);
@@ -84,13 +85,13 @@ export async function saveClinicSettings(settings: ClinicSettings): Promise<Clin
       new Date().toISOString(),
     ]
   );
-  global.__clinicSettingsCache = { data: settings, timestamp: Date.now() };
+  clinicSettingsGlobal.__clinicSettingsCache = { data: settings, timestamp: Date.now() };
   return settings;
 }
 
 /** Sync read of the last loaded appointment length (used as calendar event length). */
 export function getCachedSlotDuration(): number {
-  return global.__clinicSettingsCache?.data.slotDuration ?? DEFAULT_CLINIC_SETTINGS.slotDuration;
+  return clinicSettingsGlobal.__clinicSettingsCache?.data.slotDuration ?? DEFAULT_CLINIC_SETTINGS.slotDuration;
 }
 
 export async function getClinicSlotValues(): Promise<string[]> {
