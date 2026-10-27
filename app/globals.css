@@ -3631,9 +3631,9 @@ p {
   width: 30px;
   height: 30px;
   border-radius: 8px;
-  border: 1px solid #E2E8F0;
-  background: #ffffff;
-  color: #94A3B8;
+  border: 1px solid #FEE2E2;
+  background: #FEF2F2;
+  color: #EF4444;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -3643,12 +3643,68 @@ p {
   padding: 0;
 }
 
-.action-pill-del:hover {
-  background: #FEE2E2;
-  border-color: #FCA5A5;
-  color: #DC2626;
-  box-shadow: 0 2px 8px rgba(220, 38, 38, 0.2);
+.action-pill-del:hover:not(:disabled) {
+  background: #DC2626;
+  border-color: #DC2626;
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(220, 38, 38, 0.25);
   transform: translateY(-1px);
+}
+
+.action-pill-del:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.action-pill-del:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* 5. Edit Pill (Indigo Theme) */
+.action-pill-edit {
+  height: 30px;
+  min-width: 68px;
+  padding: 0 10px;
+  background: #EEF2FF;
+  border: 1px solid #D5DAFA;
+  color: var(--primary, #565ACF);
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 0.16s ease;
+  box-sizing: border-box;
+  line-height: 1;
+}
+
+.action-pill-edit:hover {
+  background: var(--primary, #565ACF);
+  border-color: var(--primary, #565ACF);
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(86, 90, 207, 0.25);
+  transform: translateY(-1px);
+}
+
+.action-pill-edit:active {
+  transform: translateY(0);
+}
+
+.action-pill-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.th-actions-meds {
+  width: 130px;
+  min-width: 130px;
+  text-align: center;
 }
 
 /* Backward compatibility aliases */

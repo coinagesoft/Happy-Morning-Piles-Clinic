@@ -1288,7 +1288,7 @@ export default function AdminMedicinesTab({
                     <th>Common Potencies</th>
                     <th>Category</th>
                     <th>Clinical Notes / Indications</th>
-                    <th className="th-actions">Actions</th>
+                    <th className="th-actions-meds">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1376,8 +1376,8 @@ export default function AdminMedicinesTab({
                           {med.notes || '—'}
                         </span>
                       </td>
-                      <td className="td-actions">
-                        <div className="action-pill-group">
+                      <td className="td-actions" style={{ textAlign: 'center' }}>
+                        <div className="action-pill-group" style={{ justifyContent: 'center' }}>
                           <button
                             type="button"
                             className="action-pill action-pill-edit"
@@ -1766,25 +1766,25 @@ export default function AdminMedicinesTab({
                               </span>
                             </td>
                             <td style={{ textAlign: 'right' }}>
-                              <div style={{ display: 'inline-flex', gap: '4px' }}>
+                              <div style={{ display: 'inline-flex', gap: '6px' }}>
                                 <button
                                   type="button"
                                   className="action-pill action-pill-edit"
-                                  style={{ padding: '3px 8px' }}
+                                  style={{ minWidth: '30px', width: '30px', height: '30px', padding: 0 }}
                                   title="Edit category"
                                   onClick={() => handleEditCategoryClick(cat)}
                                 >
-                                  <IconEdit size={12} />
+                                  <IconEdit size={13} />
                                 </button>
                                 <button
                                   type="button"
                                   className="action-pill action-pill-del"
-                                  style={{ padding: '3px 8px' }}
+                                  style={{ width: '30px', height: '30px', padding: 0 }}
                                   title="Delete category"
                                   disabled={deletingCategoryId === cat.id}
                                   onClick={() => handleDeleteCategory(cat)}
                                 >
-                                  <IconTrash size={12} />
+                                  <IconTrash size={13} />
                                 </button>
                               </div>
                             </td>
