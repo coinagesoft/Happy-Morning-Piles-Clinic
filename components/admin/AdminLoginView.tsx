@@ -39,7 +39,7 @@ export default function AdminLoginView({
             </svg>
           </div>
           <h2>Happy Morning Piles Clinic</h2>
-          <p>Doctor &amp; Administrative Management Portal</p>
+          <p>Role-Based Staff &amp; Administrative Portal</p>
         </div>
 
         {loginError && (
@@ -60,8 +60,112 @@ export default function AdminLoginView({
           </div>
         ) : (
           <form onSubmit={onSubmit} className="admin-login-form" noValidate>
+            {/* Quick Role Selection Banner for Demo & Ease of Access */}
+            <div
+              style={{
+                marginBottom: '18px',
+                padding: '12px',
+                background: '#F8FAFC',
+                borderRadius: '10px',
+                border: '1px solid #E2E8F0',
+              }}
+            >
+              <div
+                style={{
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  color: '#64748B',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.5px',
+                  marginBottom: '8px',
+                }}
+              >
+                Quick Role Sign-In Credentials
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px' }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEmail('shivrajrbabar@gmail.com');
+                    setPassword('Coinage@1790');
+                  }}
+                  style={{
+                    padding: '8px 4px',
+                    borderRadius: '8px',
+                    border: '1px solid #C7D2FE',
+                    background: '#EEF2FF',
+                    color: '#4338CA',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: '2px',
+                  }}
+                  title="Doctor view: full clinical history, prescriptions & revenue"
+                >
+                  <span>🩺 Doctor</span>
+                  <span style={{ fontSize: '9.5px', fontWeight: 500, color: '#6366F1' }}>Full Access</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEmail('receptionist@gmail.com');
+                    setPassword('recep@123');
+                  }}
+                  style={{
+                    padding: '8px 4px',
+                    borderRadius: '8px',
+                    border: '1px solid #FDE68A',
+                    background: '#FEF3C7',
+                    color: '#92400E',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: '2px',
+                  }}
+                  title="Receptionist: Appointments, check-ins, queue & primary billing"
+                >
+                  <span> Receptionist</span>
+                  <span style={{ fontSize: '9.5px', fontWeight: 500, color: '#B45309' }}>Front Desk</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEmail('pharmacist@gmail.com');
+                    setPassword('pharm@123');
+                  }}
+                  style={{
+                    padding: '8px 4px',
+                    borderRadius: '8px',
+                    border: '1px solid #A7F3D0',
+                    background: '#ECFDF5',
+                    color: '#065F46',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: '2px',
+                  }}
+                  title="Pharmacist: Medicines stock, inventory & dispensing"
+                >
+                  <span> Pharmacist</span>
+                  <span style={{ fontSize: '9.5px', fontWeight: 500, color: '#059669' }}>Dispensary</span>
+                </button>
+              </div>
+            </div>
+
             <div className="admin-field-group">
-              <label htmlFor="admin-email">Admin Email Address</label>
+              <label htmlFor="admin-email">Staff Email Address</label>
               <div className="admin-input-wrapper">
                 <span className="admin-input-icon" aria-hidden="true">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -73,7 +177,7 @@ export default function AdminLoginView({
                   type="email"
                   id="admin-email"
                   autoComplete="username"
-                  placeholder="name@domain.com"
+                  placeholder="name@happymorning.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="admin-auth-input"
@@ -95,7 +199,7 @@ export default function AdminLoginView({
                   type={showPassword ? 'text' : 'password'}
                   id="admin-password"
                   autoComplete="current-password"
-                  placeholder="Enter admin password"
+                  placeholder="Enter your staff password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="admin-auth-input has-toggle"
@@ -129,10 +233,10 @@ export default function AdminLoginView({
               disabled={isSubmittingLogin}
             >
               {isSubmittingLogin ? (
-                <span>Authenticating &amp; Issuing Tokens...</span>
+                <span>Authenticating &amp; Verifying Role...</span>
               ) : (
                 <>
-                  <span>Sign In to Admin Portal</span>
+                  <span>Sign In to Portal</span>
                   <IconArrowRight />
                 </>
               )}
@@ -147,4 +251,3 @@ export default function AdminLoginView({
     </div>
   );
 }
-

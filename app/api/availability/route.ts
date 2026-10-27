@@ -31,11 +31,11 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
-  const auth = verifyAdminRequest(request);
+  const auth = verifyAdminRequest(request, ['doctor', 'admin']);
   if (!auth.authenticated) {
     return NextResponse.json(
-      { error: auth.error || 'Unauthorized access.' },
-      { status: 401 }
+      { error: auth.error || 'Unauthorized access. Doctor credentials required.' },
+      { status: auth.statusCode || 401 }
     );
   }
 
@@ -99,11 +99,11 @@ export async function POST(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
-  const auth = verifyAdminRequest(request);
+  const auth = verifyAdminRequest(request, ['doctor', 'admin']);
   if (!auth.authenticated) {
     return NextResponse.json(
-      { error: auth.error || 'Unauthorized access.' },
-      { status: 401 }
+      { error: auth.error || 'Unauthorized access. Doctor credentials required.' },
+      { status: auth.statusCode || 401 }
     );
   }
 

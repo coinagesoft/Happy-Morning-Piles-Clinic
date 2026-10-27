@@ -56,9 +56,9 @@ function cleanMedicine(m: Partial<PrescriptionMedicine>): PrescriptionMedicine {
   };
 }
 
-// POST /api/admin/prescriptions  — create or update the prescription for an appointment
+// POST /api/admin/prescriptions  — create or update the prescription for an appointment (Doctor only)
 export async function POST(request: NextRequest) {
-  const auth = verifyAdminRequest(request);
+  const auth = verifyAdminRequest(request, ['doctor', 'admin']);
   if (!auth.authenticated) return unauthorized(auth.error);
 
   try {

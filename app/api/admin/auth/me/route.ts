@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
   if (cookieRefresh) {
     const verifiedRefresh = verifyJwtToken(cookieRefresh, 'refresh');
     if (verifiedRefresh) {
-      const { accessToken, refreshToken, expiresIn, user } = generateAdminTokenPair();
+      const { accessToken, refreshToken, expiresIn, user } = generateAdminTokenPair(verifiedRefresh);
       const response = NextResponse.json({
         authenticated: true,
         accessToken,
@@ -55,4 +55,3 @@ export async function GET(request: NextRequest) {
     { status: 401 }
   );
 }
-

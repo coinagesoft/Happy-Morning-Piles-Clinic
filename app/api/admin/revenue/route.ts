@@ -5,11 +5,11 @@ import { verifyAdminRequest } from '@/lib/adminAuth';
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
-  const auth = verifyAdminRequest(request);
+  const auth = verifyAdminRequest(request, ['doctor', 'admin']);
   if (!auth.authenticated) {
     return NextResponse.json(
-      { error: auth.error || 'Unauthorized access.' },
-      { status: 401 }
+      { error: auth.error || 'Unauthorized access. Doctor credentials required.' },
+      { status: auth.statusCode || 401 }
     );
   }
 

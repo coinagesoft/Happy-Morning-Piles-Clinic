@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
       return res;
     }
 
-    const { accessToken, refreshToken, expiresIn, user } = generateAdminTokenPair();
+    const { accessToken, refreshToken, expiresIn, user } = generateAdminTokenPair(verified);
 
     const response = NextResponse.json(
       {
@@ -65,4 +65,3 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-

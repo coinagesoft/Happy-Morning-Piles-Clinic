@@ -1,8 +1,54 @@
 import crypto from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 
-export const ADMIN_EMAIL = 'shivrajrbabar@gmail.com';
-export const ADMIN_PASSWORD = 'Coinage@1790';
+export type AdminRole = 'admin' | 'doctor' | 'receptionist' | 'pharmacist';
+
+export interface AdminUserConfig {
+  id: string;
+  email: string;
+  password: string;
+  name: string;
+  role: AdminRole;
+  title: string;
+}
+
+export const ADMIN_USERS: AdminUserConfig[] = [
+  {
+    id: 'user-doctor-1',
+    email: 'shivrajrbabar@gmail.com',
+    password: process.env.ADMIN_PASSWORD || 'Coinage@1790',
+    name: 'Dr. Mahesh Shete',
+    role: 'doctor',
+    title: 'Consulting Doctor (Full Clinical Access)',
+  },
+  {
+    id: 'user-doctor-2',
+    email: 'doctor@gmail.com',
+    password: 'doctor@123',
+    name: 'Dr. Mahesh Shete',
+    role: 'doctor',
+    title: 'Consulting Doctor (Full Clinical Access)',
+  },
+  {
+    id: 'user-receptionist-1',
+    email: 'receptionist@gmail.com',
+    password: 'recep@123',
+    name: 'Front Desk Receptionist',
+    role: 'receptionist',
+    title: 'Front Desk & Patient Care Coordinator',
+  },
+  {
+    id: 'user-pharmacist-1',
+    email: 'pharmacist@gmail.com',
+    password: 'pharm@123',
+    name: 'Clinic Pharmacist',
+    role: 'pharmacist',
+    title: 'Pharmacy & Remedy Dispensary Manager',
+  },
+];
+
+export const ADMIN_EMAIL = ADMIN_USERS[0].email;
+export const ADMIN_PASSWORD = ADMIN_USERS[0].password;
 
 const JWT_SECRET =
   process.env.ADMIN_JWT_SECRET ||
@@ -19,7 +65,7 @@ export interface AdminTokenPayload {
   sub: string;
   email: string;
   name: string;
-  role: 'admin';
+  role: AdminRole;
   type: 'access' | 'refresh';
   jti: string;
   iat: number;
@@ -110,12 +156,46 @@ export function verifyJwtToken(
   }
 }
 
-export function generateAdminTokenPair() {
+export function findUserByCredentials(email: string, password: string): AdminUserConfig | null {
+  const cleanEmail = (email || '').trim().toLowerCase();
+  const inputPass = String(password || '');
+
+  for (const user of ADMIN_USERS) {
+    if (user.email.toLowerCase() === cleanEmail) {
+      const inputPassBuf = Buffer.from(inputPass);
+      const expectedPassBuf = Buffer.from(user.password);
+      if (
+        inputPassBuf.length === expectedPassBuf.length &&
+        crypto.timingSafeEqual(inputPassBuf, expectedPassBuf)
+      ) {
+        return user;
+      }
+    }
+  }
+
+  return null;
+}
+
+export function validateAdminCredentials(email: string, password: string): boolean {
+  return findUserByCredentials(email, password) !== null;
+}
+
+export function generateAdminTokenPair(
+  userConfig?: AdminUserConfig | { sub?: string; email: string; name: string; role: AdminRole }
+) {
+  const targetUser = userConfig || ADMIN_USERS[0];
+  const sub =
+    'sub' in targetUser && targetUser.sub
+      ? targetUser.sub
+      : 'id' in targetUser && targetUser.id
+      ? targetUser.id
+      : 'user-admin-1';
+
   const baseUser = {
-    sub: 'doctor-admin-1',
-    email: ADMIN_EMAIL,
-    name: 'Dr. Mahesh Shete',
-    role: 'admin' as const,
+    sub,
+    email: targetUser.email,
+    name: targetUser.name,
+    role: targetUser.role,
   };
 
   const accessToken = signJwtToken(
@@ -138,24 +218,6 @@ export function generateAdminTokenPair() {
       role: baseUser.role,
     },
   };
-}
-
-export function validateAdminCredentials(email: string, password: string): boolean {
-  const cleanEmail = (email || '').trim().toLowerCase();
-  const expectedEmail = ADMIN_EMAIL.toLowerCase();
-
-  if (cleanEmail !== expectedEmail) {
-    return false;
-  }
-
-  const inputPassBuf = Buffer.from(password || '');
-  const expectedPassBuf = Buffer.from(ADMIN_PASSWORD);
-
-  if (inputPassBuf.length !== expectedPassBuf.length) {
-    return false;
-  }
-
-  return crypto.timingSafeEqual(inputPassBuf, expectedPassBuf);
 }
 
 export function setAuthCookies(
@@ -196,35 +258,60 @@ export function clearAuthCookies(response: NextResponse): void {
   });
 }
 
-export function verifyAdminRequest(request: NextRequest): {
+export function verifyAdminRequest(
+  request: NextRequest,
+  allowedRoles?: AdminRole[]
+): {
   authenticated: boolean;
   payload?: AdminTokenPayload;
   error?: string;
+  statusCode?: number;
 } {
+  let verifiedPayload: AdminTokenPayload | null = null;
+
   // 1. Check Authorization: Bearer <token> header
   const authHeader = request.headers.get('authorization');
   if (authHeader && authHeader.startsWith('Bearer ')) {
     const bearerToken = authHeader.slice(7).trim();
-    const verified = verifyJwtToken(bearerToken, 'access');
-    if (verified) return { authenticated: true, payload: verified };
+    verifiedPayload = verifyJwtToken(bearerToken, 'access');
   }
 
   // 2. Check HttpOnly access token cookie
-  const cookieAccess = request.cookies.get(ACCESS_TOKEN_COOKIE)?.value;
-  if (cookieAccess) {
-    const verified = verifyJwtToken(cookieAccess, 'access');
-    if (verified) return { authenticated: true, payload: verified };
+  if (!verifiedPayload) {
+    const cookieAccess = request.cookies.get(ACCESS_TOKEN_COOKIE)?.value;
+    if (cookieAccess) {
+      verifiedPayload = verifyJwtToken(cookieAccess, 'access');
+    }
   }
 
-  // 3. Fallback: Check HttpOnly refresh token cookie so valid sessions stay seamless
-  const cookieRefresh = request.cookies.get(REFRESH_TOKEN_COOKIE)?.value;
-  if (cookieRefresh) {
-    const verified = verifyJwtToken(cookieRefresh, 'refresh');
-    if (verified) return { authenticated: true, payload: verified };
+  // 3. Fallback: Check HttpOnly refresh token cookie
+  if (!verifiedPayload) {
+    const cookieRefresh = request.cookies.get(REFRESH_TOKEN_COOKIE)?.value;
+    if (cookieRefresh) {
+      verifiedPayload = verifyJwtToken(cookieRefresh, 'refresh');
+    }
   }
 
-  return {
-    authenticated: false,
-    error: 'Unauthorized: Valid admin access token required.',
-  };
+  if (!verifiedPayload) {
+    return {
+      authenticated: false,
+      error: 'Unauthorized: Valid admin access token required.',
+      statusCode: 401,
+    };
+  }
+
+  // Role verification (if allowedRoles specified)
+  if (allowedRoles && allowedRoles.length > 0) {
+    const userRole = verifiedPayload.role || 'admin';
+    const isAllowed = allowedRoles.includes(userRole) || userRole === 'admin';
+    if (!isAllowed) {
+      return {
+        authenticated: false,
+        error: `Forbidden: Role "${userRole}" does not have permission for this action.`,
+        statusCode: 403,
+      };
+    }
+  }
+
+  return { authenticated: true, payload: verifiedPayload };
 }

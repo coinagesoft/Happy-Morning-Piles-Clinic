@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
-  validateAdminCredentials,
+  findUserByCredentials,
   generateAdminTokenPair,
   setAuthCookies,
 } from '@/lib/adminAuth';
@@ -19,20 +19,20 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const isValid = validateAdminCredentials(String(email), String(password));
-    if (!isValid) {
+    const matchedUser = findUserByCredentials(String(email), String(password));
+    if (!matchedUser) {
       return NextResponse.json(
-        { error: 'Invalid admin email or password. Access denied.' },
+        { error: 'Invalid login credentials. Please check your email and password.' },
         { status: 401 }
       );
     }
 
-    const { accessToken, refreshToken, expiresIn, user } = generateAdminTokenPair();
+    const { accessToken, refreshToken, expiresIn, user } = generateAdminTokenPair(matchedUser);
 
     const response = NextResponse.json(
       {
         authenticated: true,
-        message: 'Successfully signed in to Admin Portal.',
+        message: `Welcome ${matchedUser.name}! Signed in as ${matchedUser.role}.`,
         accessToken,
         refreshToken,
         expiresIn,
@@ -51,4 +51,3 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-

@@ -342,16 +342,39 @@ export default function AdminPage() {
       .finally(() => setIsLoadingMedicines(false));
   }, [adminFetch]);
 
-  // Initial Data Load on Authentication
+  // Role-Based Access Control State
+  const role = adminUser?.role || 'doctor';
+  const isReceptionist = role === 'receptionist';
+  const isPharmacist = role === 'pharmacist';
+  const isDoctor = !isReceptionist && !isPharmacist;
+
+  // Auto-redirect if user lands on an unauthorized tab
+  useEffect(() => {
+    if (isReceptionist && !['appointments', 'patients', 'payments'].includes(activeTab)) {
+      setActiveTab('appointments');
+    } else if (isPharmacist && activeTab !== 'medicines') {
+      setActiveTab('medicines');
+    }
+  }, [isReceptionist, isPharmacist, activeTab]);
+
+  // Initial Data Load on Authentication based on role
   useEffect(() => {
     if (isAuthenticated) {
-      loadAppointments();
-      loadRevenue();
-      loadOverrides();
-      loadMedicines();
-      loadFollowUps();
+      if (isDoctor) {
+        loadAppointments();
+        loadRevenue();
+        loadOverrides();
+        loadMedicines();
+        loadFollowUps();
+      } else if (isReceptionist) {
+        loadAppointments();
+        loadOverrides();
+        loadFollowUps();
+      } else if (isPharmacist) {
+        loadMedicines();
+      }
     }
-  }, [isAuthenticated, loadAppointments, loadRevenue, loadOverrides, loadMedicines, loadFollowUps]);
+  }, [isAuthenticated, isDoctor, isReceptionist, isPharmacist, loadAppointments, loadRevenue, loadOverrides, loadMedicines, loadFollowUps]);
 
   // Update Appointment Status (Instant Optimistic UI + Server Sync)
   const handleUpdateStatus = async (
@@ -612,7 +635,7 @@ export default function AdminPage() {
 
       {/* Main Admin Content Tab Panes */}
       <main className="admin-main-container container">
-        {activeTab === 'overview' && (
+        {activeTab === 'overview' && isDoctor && (
           <AdminOverviewTab
             stats={stats}
             patientCount={patientDirectory.length}
@@ -621,8 +644,9 @@ export default function AdminPage() {
           />
         )}
 
-        {activeTab === 'appointments' && (
+        {activeTab === 'appointments' && (isDoctor || isReceptionist) && (
           <AdminAppointmentsTab
+            userRole={role}
             appointments={appointments}
             stats={stats}
             overrides={overrides}
@@ -651,7 +675,7 @@ export default function AdminPage() {
           />
         )}
 
-        {activeTab === 'patients' && (
+        {activeTab === 'patients' && (isDoctor || isReceptionist) && (
           <AdminPatientsTab
             patients={patientDirectory}
             followUps={followUps}
@@ -659,14 +683,14 @@ export default function AdminPage() {
           />
         )}
 
-        {activeTab === 'payments' && (
+        {activeTab === 'payments' && (isDoctor || isReceptionist) && (
           <AdminPaymentsTab
             appointments={appointments}
             revenueData={revenueData}
           />
         )}
 
-        {activeTab === 'availability' && (
+        {activeTab === 'availability' && isDoctor && (
           <div className="tab-pane-fade">
             <DoctorAvailabilityManager
               overrides={overrides}
@@ -680,8 +704,9 @@ export default function AdminPage() {
           </div>
         )}
 
-        {activeTab === 'medicines' && (
+        {activeTab === 'medicines' && (isDoctor || isPharmacist) && (
           <AdminMedicinesTab
+            userRole={role}
             medicines={medicines}
             isLoading={isLoadingMedicines}
             onRefresh={loadMedicines}
@@ -693,6 +718,7 @@ export default function AdminPage() {
       {/* Patient Consultation History Modal */}
       {selectedPatient && (
         <PatientHistoryModal
+          userRole={role}
           patient={selectedPatient}
           onClose={() => setSelectedPatient(null)}
           onUpdateNotes={handleUpdateNotes}
@@ -714,14 +740,16 @@ export default function AdminPage() {
         }}
       />
 
-      {/* Prescription: write, print, email */}
-      <PrescriptionModal
-        appointment={prescriptionAppointment}
-        adminFetch={adminFetch}
-        availableMedicines={medicines}
-        onSaved={loadFollowUps}
-        onClose={() => setPrescriptionAppointment(null)}
-      />
+      {/* Prescription: write, print, email (Doctor only) */}
+      {prescriptionAppointment && isDoctor && (
+        <PrescriptionModal
+          appointment={prescriptionAppointment}
+          adminFetch={adminFetch}
+          availableMedicines={medicines}
+          onSaved={loadFollowUps}
+          onClose={() => setPrescriptionAppointment(null)}
+        />
+      )}
 
       {/* Admin Reschedule Appointment Slide-Over Drawer */}
       <AdminRescheduleModal

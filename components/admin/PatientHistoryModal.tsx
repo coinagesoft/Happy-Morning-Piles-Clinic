@@ -19,6 +19,7 @@ import {
 type EditableStatus = 'confirmed' | 'completed' | 'cancelled';
 
 interface PatientHistoryModalProps {
+  userRole?: string;
   patient: PatientGroup;
   onClose: () => void;
   onUpdateNotes: (id: string, notes: string) => Promise<void>;
@@ -47,6 +48,7 @@ function sortKey(a: Appointment) {
 }
 
 export default function PatientHistoryModal({
+  userRole = 'doctor',
   patient,
   onClose,
   onUpdateNotes,
@@ -319,67 +321,91 @@ export default function PatientHistoryModal({
                       </div>
                     </div>
 
-                    <div className="clinical-notes-editor-box">
-                      <div className="notes-box-header">
+                    {userRole === 'receptionist' ? (
+                      <div
+                        style={{
+                          padding: '16px 18px',
+                          background: '#F8FAFC',
+                          borderRadius: '10px',
+                          border: '1px solid #E2E8F0',
+                          color: '#64748B',
+                          fontSize: '13px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '10px',
+                        }}
+                      >
+                        <span style={{ fontSize: '18px' }}>🔒</span>
                         <div>
-                          <div className="notes-box-title">
-                            Clinical notes for <strong>{formatDate(selected.date)}</strong>
+                          <strong style={{ color: '#334155', display: 'block', marginBottom: '2px' }}>
+                            Clinical Notes &amp; Diagnosis (Doctor Protected)
+                          </strong>
+                          Clinical examinations, doctor notes, and medical diagnosis are restricted to Doctor view only.
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="clinical-notes-editor-box">
+                        <div className="notes-box-header">
+                          <div>
+                            <div className="notes-box-title">
+                              Clinical notes for <strong>{formatDate(selected.date)}</strong>
+                            </div>
+                            <div className="notes-box-subtitle">
+                              Private to the doctor. Saved against this visit only.
+                            </div>
                           </div>
-                          <div className="notes-box-subtitle">
-                            Private to the doctor. Saved against this visit only.
+                          <span
+                            className={`notes-badge-tag ${isDirty ? 'tag-dirty' : 'tag-saved'}`}
+                          >
+                            {isDirty ? 'Unsaved changes' : 'Saved'}
+                          </span>
+                        </div>
+
+                        <div className="editor-textarea-wrapper">
+                          <textarea
+                            className="clinical-notes-textarea-master"
+                            value={draft}
+                            onChange={(e) => {
+                              setDraft(e.target.value);
+                              setJustSaved(false);
+                            }}
+                            placeholder="Symptoms, examination findings, diagnosis, advice, follow-up plan…"
+                          />
+                        </div>
+
+                        <div className="notes-editor-toolbar">
+                          <div className="toolbar-left">
+                            <button
+                              type="button"
+                              className="btn-copy-note"
+                              onClick={handleCopy}
+                              disabled={!draft.trim()}
+                            >
+                              {copied ? <IconCheck /> : <IconCopy />} {copied ? 'Copied' : 'Copy'}
+                            </button>
+                            {justSaved && <span className="save-success-banner">Notes saved</span>}
+                          </div>
+                          <div className="toolbar-right">
+                            <button
+                              type="button"
+                              className="btn-cancel-clinical-notes"
+                              onClick={() => setDraft(savedNotes)}
+                              disabled={!isDirty || isSaving}
+                            >
+                              Discard
+                            </button>
+                            <button
+                              type="button"
+                              className="btn-save-clinical-notes"
+                              onClick={handleSave}
+                              disabled={!isDirty || isSaving}
+                            >
+                              {isSaving ? 'Saving…' : 'Save Notes'}
+                            </button>
                           </div>
                         </div>
-                        <span
-                          className={`notes-badge-tag ${isDirty ? 'tag-dirty' : 'tag-saved'}`}
-                        >
-                          {isDirty ? 'Unsaved changes' : 'Saved'}
-                        </span>
                       </div>
-
-                      <div className="editor-textarea-wrapper">
-                        <textarea
-                          className="clinical-notes-textarea-master"
-                          value={draft}
-                          onChange={(e) => {
-                            setDraft(e.target.value);
-                            setJustSaved(false);
-                          }}
-                          placeholder="Symptoms, examination findings, diagnosis, advice, follow-up plan…"
-                        />
-                      </div>
-
-                      <div className="notes-editor-toolbar">
-                        <div className="toolbar-left">
-                          <button
-                            type="button"
-                            className="btn-copy-note"
-                            onClick={handleCopy}
-                            disabled={!draft.trim()}
-                          >
-                            {copied ? <IconCheck /> : <IconCopy />} {copied ? 'Copied' : 'Copy'}
-                          </button>
-                          {justSaved && <span className="save-success-banner">Notes saved</span>}
-                        </div>
-                        <div className="toolbar-right">
-                          <button
-                            type="button"
-                            className="btn-cancel-clinical-notes"
-                            onClick={() => setDraft(savedNotes)}
-                            disabled={!isDirty || isSaving}
-                          >
-                            Discard
-                          </button>
-                          <button
-                            type="button"
-                            className="btn-save-clinical-notes"
-                            onClick={handleSave}
-                            disabled={!isDirty || isSaving}
-                          >
-                            {isSaving ? 'Saving…' : 'Save Notes'}
-                          </button>
-                        </div>
-                      </div>
-                    </div>
+                    )}
                   </>
                 )}
               </div>

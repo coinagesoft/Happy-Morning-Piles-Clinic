@@ -21,6 +21,7 @@ import {
 import { AdminStats } from '@/components/admin/types';
 
 interface AdminAppointmentsTabProps {
+  userRole?: string;
   appointments: Appointment[];
   stats: AdminStats;
   overrides: DoctorOverride[];
@@ -52,6 +53,7 @@ interface AdminAppointmentsTabProps {
 }
 
 export default function AdminAppointmentsTab({
+  userRole = 'doctor',
   appointments,
   stats,
   overrides,
@@ -472,9 +474,8 @@ export default function AdminAppointmentsTab({
                       </td>
                       <td>
                         <span
-                          className={`mode-pill ${
-                            appt.consultationType === 'offline' ? 'mode-offline' : 'mode-online'
-                          }`}
+                          className={`mode-pill ${appt.consultationType === 'offline' ? 'mode-offline' : 'mode-online'
+                            }`}
                         >
                           {appt.consultationType === 'offline' ? 'In-Clinic' : 'Online Meet'}
                         </span>
@@ -537,12 +538,11 @@ export default function AdminAppointmentsTab({
                         <div className="cell-payment-wrap">
                           <span className={`payment-pill pill-${appt.paymentStatus || 'paid'}`}>
                             {appt.paymentStatus === 'paid'
-                              ? `${appt.paymentMethod === 'Cash' ? 'Cash Paid' : 'Paid'} ₹${
-                                  appt.amount || 800
-                                }`
+                              ? `${appt.paymentMethod === 'Cash' ? 'Cash Paid' : 'Paid'} ₹${appt.amount || 800
+                              }`
                               : appt.paymentStatus === 'refunded'
-                              ? 'Refunded'
-                              : 'Pending'}
+                                ? 'Refunded'
+                                : 'Pending'}
                           </span>
                           {appt.paymentStatus !== 'paid' && (
                             <button
@@ -567,15 +567,17 @@ export default function AdminAppointmentsTab({
                             <span>Notes</span>
                           </button>
 
-                          <button
-                            type="button"
-                            className="action-pill action-pill-rx"
-                            title="Write, print or email prescription"
-                            onClick={() => onPrescribe(appt)}
-                          >
-                            <IconPill size={13} />
-                            <span>Prescription</span>
-                          </button>
+                          {userRole !== 'receptionist' && (
+                            <button
+                              type="button"
+                              className="action-pill action-pill-rx"
+                              title="Write, print or email prescription (Doctor only)"
+                              onClick={() => onPrescribe(appt)}
+                            >
+                              <IconPill size={13} />
+                              <span>Prescription</span>
+                            </button>
+                          )}
 
                           <button
                             type="button"

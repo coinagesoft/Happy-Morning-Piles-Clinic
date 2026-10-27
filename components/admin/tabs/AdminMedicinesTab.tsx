@@ -22,6 +22,7 @@ import {
 } from '@/components/admin/AdminIcons';
 
 interface AdminMedicinesTabProps {
+  userRole?: string;
   medicines: Medicine[];
   isLoading: boolean;
   onRefresh: () => void | Promise<void>;
@@ -67,6 +68,7 @@ interface CategoryFormState {
 }
 
 export default function AdminMedicinesTab({
+  userRole = 'doctor',
   medicines,
   isLoading,
   onRefresh,

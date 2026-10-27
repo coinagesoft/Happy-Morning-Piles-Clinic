@@ -7,10 +7,13 @@ export type AdminTabType = 'overview' | 'appointments' | 'patients' | 'payments'
 
 export type { Medicine };
 
+export type AdminRole = 'admin' | 'doctor' | 'receptionist' | 'pharmacist';
+
 export interface AdminUser {
   email: string;
   name: string;
-  role: string;
+  role: AdminRole | string;
+  title?: string;
 }
 
 export interface AdminStats {
