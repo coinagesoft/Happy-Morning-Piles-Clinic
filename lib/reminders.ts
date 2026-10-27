@@ -1,10 +1,11 @@
 import type { ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 import { getPool, ensureDatabaseSchema } from './db';
 import { sendHtmlEmail, isMailerConfigured } from './mailer';
-import { isMsg91Configured, sendMsg91WhatsApp } from './msg91';
+import { isMsg91Configured, isMsg91FollowUpConfigured, sendMsg91WhatsApp } from './msg91';
 import { formatSlotLabel } from './slots';
 import {
   patientReminderEmail,
+  followUpReminderEmail,
   doctorDigestEmail,
   formatDateLong,
   modeLabel,
@@ -17,6 +18,10 @@ import { CLINIC } from './clinicInfo';
  * Appointment reminders (all times Asia/Kolkata):
  *  - Patient: email + WhatsApp (MSG91) at 2 days, 1 day, 10 hours, 1 hour and 10 minutes
  *    before the appointment (REMINDER_OFFSETS_MINUTES, default "2880,1440,600,60,10")
+ *  - Follow-up: if the doctor set a follow-up date on a prescription, the patient gets an email
+ *    (+ WhatsApp via the MSG91 follow-up template only when FOLLOWUP_WHATSAPP_ENABLED=true) the day before and on the day (FOLLOWUP_REMINDER_DAYS_BEFORE,
+ *    default "1,0"), sent from FOLLOWUP_REMINDER_HOUR (default 9 AM IST). Skipped if the patient
+ *    has already booked a new appointment.
  *  - Doctor : one email each morning with the whole day's list (DOCTOR_DIGEST_HOUR, default 8)
  *
  * runReminderJob() is idempotent: every message is recorded in `reminder_log`,
@@ -26,8 +31,9 @@ import { CLINIC } from './clinicInfo';
 const MAX_ATTEMPTS = 3;
 const STALE_CLAIM_MS = 10 * 60 * 1000;
 const DIGEST_LAST_HOUR = 18; // don't send a "morning" digest after 6 PM
+const FOLLOWUP_LAST_HOUR = 20; // don't send follow-up reminders after 8 PM
 
-type Kind = `before_${number}` | 'doctor_digest' | 'test_after_booking';
+type Kind = `before_${number}` | `followup_${number}` | 'doctor_digest' | 'test_after_booking';
 type Channel = 'email' | 'whatsapp';
 
 export interface JobItem {
@@ -67,8 +73,15 @@ function config() {
     .map((x) => Number(x.trim()))
     .filter((x) => Number.isFinite(x) && x > 0)
     .sort((x, y) => y - x);
+  const followUpDays = (process.env.FOLLOWUP_REMINDER_DAYS_BEFORE || '1,0')
+    .split(',')
+    .map((x) => Number(x.trim()))
+    .filter((x) => Number.isInteger(x) && x >= 0 && x <= 30)
+    .sort((x, y) => y - x);
   return {
     offsets,
+    followUpDays: followUpDays.length ? followUpDays : [1, 0],
+    followUpHour: num(process.env.FOLLOWUP_REMINDER_HOUR, 9),
     // Long-lead reminders (10 hours or more) are held back during these IST hours. Same value = no quiet hours.
     quietStart: num(process.env.REMINDER_QUIET_START_HOUR, 22),
     quietEnd: num(process.env.REMINDER_QUIET_END_HOUR, 7),
@@ -201,6 +214,38 @@ async function loadConfirmed(dates: string[]): Promise<ReminderAppointment[]> {
   }));
 }
 
+interface FollowUpRow extends RowDataPacket {
+  id: string;
+  patient_name: string;
+  patient_email: string;
+  patient_phone: string;
+  prescription_date: string;
+  follow_up_date: string;
+}
+
+async function loadFollowUps(dates: string[]): Promise<FollowUpRow[]> {
+  const [rows] = await getPool().execute<FollowUpRow[]>(
+    `SELECT id, patient_name, patient_email, patient_phone, prescription_date, follow_up_date
+       FROM prescriptions
+      WHERE follow_up_date IN (${dates.map(() => '?').join(',')})
+      ORDER BY follow_up_date`,
+    dates
+  );
+  return rows;
+}
+
+/** True if this patient already has a confirmed appointment booked after the prescription (nothing to remind). */
+async function hasBookedSince(phone: string, prescriptionDate: string, today: string): Promise<boolean> {
+  const [rows] = await getPool().execute<RowDataPacket[]>(
+    `SELECT 1 FROM appointments
+      WHERE phone = ? AND status = 'confirmed'
+        AND appointment_date > ? AND appointment_date >= ?
+      LIMIT 1`,
+    [phone, prescriptionDate, today]
+  );
+  return rows.length > 0;
+}
+
 /* --------------------------------- the job --------------------------------- */
 
 interface Task {
@@ -303,6 +348,68 @@ export async function runReminderJob(
               bodyValues: [a.fullName, formatDateLong(a.date), formatSlotLabel(a.time), modeLabel(a), locationDetail(a)],
             }),
         });
+      }
+    }
+
+    // Follow-up reminders (date chosen by the doctor in the prescription)
+    if (nowHour >= cfg.followUpHour && nowHour < FOLLOWUP_LAST_HOUR) {
+      const days = cfg.followUpDays.map((n) => ({ n, date: addDays(today, n) }));
+      const dueFollowUps = await loadFollowUps(days.map((d) => d.date));
+      const appUrl = (process.env.NEXT_PUBLIC_APP_URL || '').replace(/\/$/, '');
+      const bookingUrl = appUrl ? `${appUrl}/appointment` : '';
+      // Email only for now. WhatsApp follow-up reminders stay off until FOLLOWUP_WHATSAPP_ENABLED=true.
+      const waFollowUpWanted = (process.env.FOLLOWUP_WHATSAPP_ENABLED || '').toLowerCase() === 'true';
+      const waFollowUpOk = waFollowUpWanted && isMsg91FollowUpConfigured();
+      if (dueFollowUps.length && waFollowUpWanted && !waFollowUpOk) {
+        skipped.push('follow-up WhatsApp not configured (MSG91_WHATSAPP_TEMPLATE_FOLLOWUP)');
+      }
+
+      for (const rx of dueFollowUps) {
+        if (rx.follow_up_date <= rx.prescription_date) continue;
+        if (today <= rx.prescription_date) continue; // patient has just left the clinic - remind from the next day
+        const stage = days.find((d) => d.date === rx.follow_up_date);
+        if (!stage) continue;
+        if (await hasBookedSince(rx.patient_phone, rx.prescription_date, today)) continue;
+
+        const kind: Kind = `followup_${stage.n}`;
+        const keyBase = `rx:${rx.id}:${rx.follow_up_date}:${kind}`;
+        const realEmail = rx.patient_email && rx.patient_email !== 'patient@walkin.clinic' && rx.patient_email.includes('@');
+
+        if (mailOk && realEmail) {
+          const mail = followUpReminderEmail({
+            fullName: rx.patient_name,
+            followUpDate: rx.follow_up_date,
+            daysBefore: stage.n,
+            bookingUrl: bookingUrl || undefined,
+          });
+          tasks.push({
+            key: `${keyBase}:email`,
+            kind,
+            channel: 'email',
+            to: rx.patient_email,
+            run: () => sendHtmlEmail({ to: rx.patient_email, ...mail }),
+          });
+        }
+        if (waFollowUpOk) {
+          tasks.push({
+            key: `${keyBase}:whatsapp`,
+            kind,
+            channel: 'whatsapp',
+            to: rx.patient_phone,
+            run: () =>
+              sendMsg91WhatsApp({
+                phone: rx.patient_phone,
+                template: process.env.MSG91_WHATSAPP_TEMPLATE_FOLLOWUP,
+                // {{1}} name, {{2}} follow-up date, {{3}} booking link (or clinic phone), {{4}} clinic phone
+                bodyValues: [
+                  rx.patient_name,
+                  formatDateLong(rx.follow_up_date),
+                  bookingUrl || CLINIC.phone.display,
+                  CLINIC.phone.display,
+                ],
+              }),
+          });
+        }
       }
     }
 

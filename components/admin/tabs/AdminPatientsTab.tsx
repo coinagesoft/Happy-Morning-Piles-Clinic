@@ -14,10 +14,12 @@ import {
   IconGrid,
   IconFileText,
 } from '@/components/admin/AdminIcons';
-import { PatientGroup } from '@/components/admin/types';
+import { PatientGroup, FollowUpRecord } from '@/components/admin/types';
 
 interface AdminPatientsTabProps {
   patients: PatientGroup[];
+  /** Follow-up dates set on prescriptions. */
+  followUps?: FollowUpRecord[];
   onSelectPatient: (patient: PatientGroup) => void;
 }
 
@@ -38,28 +40,114 @@ function formatReadableDate(dateStr?: string) {
   return dateStr;
 }
 
+// Same identity rule the directory uses to group appointments into one patient
+function customerKey(email?: string, phone?: string): string {
+  const cleanEmail = email ? email.trim().toLowerCase() : '';
+  if (cleanEmail) return cleanEmail;
+  const cleanPhone = phone ? phone.replace(/[^0-9]/g, '').slice(-10) : '';
+  return cleanPhone ? `phone:${cleanPhone}` : 'unknown';
+}
+
+function todayIst(): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
+}
+
+function daysBetween(from: string, to: string): number {
+  const f = from.split('-').map(Number);
+  const t = to.split('-').map(Number);
+  return Math.round((Date.UTC(t[0], t[1] - 1, t[2]) - Date.UTC(f[0], f[1] - 1, f[2])) / 86_400_000);
+}
+
+type FollowUpState = 'overdue' | 'today' | 'soon' | 'upcoming' | 'booked';
+
+interface PatientFollowUp {
+  date: string;
+  text: string;
+  state: FollowUpState;
+  label: string;
+}
+
+type FollowUpFilter = 'all' | 'any' | 'due-week' | 'overdue';
+
 export default function AdminPatientsTab({
   patients,
+  followUps = [],
   onSelectPatient,
 }: AdminPatientsTabProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [frequencyFilter, setFrequencyFilter] = useState<'all' | 'repeat' | 'first'>('all');
   const [timeFilter, setTimeFilter] = useState<'all' | 'month' | '30days' | 'year'>('all');
-  const [sortBy, setSortBy] = useState<'latest' | 'oldest' | 'visits' | 'spend' | 'name'>('latest');
+  const [followUpFilter, setFollowUpFilter] = useState<FollowUpFilter>('all');
+  const [sortBy, setSortBy] = useState<'latest' | 'oldest' | 'visits' | 'spend' | 'name' | 'followup'>('latest');
   const [viewMode, setViewMode] = useState<'table' | 'cards'>('table');
 
   const hasActiveFilters =
     searchQuery.trim() !== '' ||
     frequencyFilter !== 'all' ||
     timeFilter !== 'all' ||
+    followUpFilter !== 'all' ||
     sortBy !== 'latest';
 
   const handleResetFilters = () => {
     setSearchQuery('');
     setFrequencyFilter('all');
     setTimeFilter('all');
+    setFollowUpFilter('all');
     setSortBy('latest');
   };
+
+  // Latest prescription's follow-up per patient (a newer prescription replaces an older follow-up)
+  const followUpByPatient = useMemo(() => {
+    const latest = new Map<string, FollowUpRecord>();
+    followUps.forEach((rec) => {
+      const key = customerKey(rec.email, rec.phone);
+      const cur = latest.get(key);
+      if (
+        !cur ||
+        rec.prescriptionDate > cur.prescriptionDate ||
+        (rec.prescriptionDate === cur.prescriptionDate && rec.updatedAt > cur.updatedAt)
+      ) {
+        latest.set(key, rec);
+      }
+    });
+
+    const today = todayIst();
+    const result = new Map<string, PatientFollowUp>();
+    patients.forEach((p) => {
+      const key = customerKey(p.email, p.phone);
+      const rec = latest.get(key);
+      if (!rec || !rec.followUpDate) return;
+
+      const booked = p.appointments.some(
+        (a) =>
+          a.date > rec.prescriptionDate &&
+          a.date >= today &&
+          a.status !== 'cancelled' &&
+          a.status !== 'no-show'
+      );
+      const diff = daysBetween(today, rec.followUpDate);
+      let state: FollowUpState;
+      let label: string;
+      if (booked) {
+        state = 'booked';
+        label = 'Booked';
+      } else if (diff < 0) {
+        state = 'overdue';
+        label = `Overdue by ${-diff} day${diff === -1 ? '' : 's'}`;
+      } else if (diff === 0) {
+        state = 'today';
+        label = 'Due today';
+      } else if (diff <= 7) {
+        state = 'soon';
+        label = diff === 1 ? 'Tomorrow' : `In ${diff} days`;
+      } else {
+        state = 'upcoming';
+        label = `In ${diff} days`;
+      }
+      result.set(key, { date: rec.followUpDate, text: rec.followUp, state, label });
+    });
+    return result;
+  }, [followUps, patients]);
 
   // Filter and sort patients
   const filteredPatients = useMemo(() => {
@@ -111,6 +199,17 @@ export default function AdminPatientsTab({
       });
     }
 
+    // 3b. Follow-up filter
+    if (followUpFilter !== 'all') {
+      result = result.filter((p) => {
+        const f = followUpByPatient.get(customerKey(p.email, p.phone));
+        if (!f) return false;
+        if (followUpFilter === 'any') return true;
+        if (followUpFilter === 'overdue') return f.state === 'overdue';
+        return f.state === 'today' || f.state === 'soon'; // due-week
+      });
+    }
+
     // 4. Sorting
     result.sort((a, b) => {
       const aLatestDate = a.appointments[0]?.date || '';
@@ -134,16 +233,34 @@ export default function AdminPatientsTab({
           return bTotalSpent - aTotalSpent;
         case 'name':
           return a.fullName.localeCompare(b.fullName);
+        case 'followup': {
+          const fa = followUpByPatient.get(customerKey(a.email, a.phone))?.date || '9999-12-31';
+          const fb = followUpByPatient.get(customerKey(b.email, b.phone))?.date || '9999-12-31';
+          return fa.localeCompare(fb);
+        }
         default:
           return 0;
       }
     });
 
     return result;
-  }, [patients, searchQuery, frequencyFilter, timeFilter, sortBy]);
+  }, [patients, searchQuery, frequencyFilter, timeFilter, followUpFilter, sortBy, followUpByPatient]);
 
   return (
     <div className="tab-pane-fade">
+      <style>{`
+        .directory-toolbar-grid { grid-template-columns: 2fr 1.1fr 1.1fr 1.15fr 1.25fr; }
+        @media (max-width: 1200px) { .directory-toolbar-grid { grid-template-columns: 1fr 1fr; } }
+        @media (max-width: 680px) { .directory-toolbar-grid { grid-template-columns: 1fr; } }
+        .fu-cell { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+        .fu-cell strong { font-size: 13px; color: var(--primary-dark); }
+        .fu-badge { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 11.5px; font-weight: 800; }
+        .fu-badge.overdue { background: #fee2e2; color: #b91c1c; }
+        .fu-badge.today { background: #ffedd5; color: #c2410c; }
+        .fu-badge.soon { background: #fef3c7; color: #92400e; }
+        .fu-badge.upcoming { background: #e0f2fe; color: #0369a1; }
+        .fu-badge.booked { background: #dcfce7; color: #15803d; }
+      `}</style>
       {/* Directory Page Heading */}
       <div className="directory-header-row">
         <div>
@@ -240,6 +357,23 @@ export default function AdminPatientsTab({
             </select>
           </div>
 
+          {/* 3b. Follow-up Filter */}
+          <div className="filter-select-wrap">
+            <span className="filter-icon-box" aria-hidden="true">
+              <IconCalendar size={14} />
+            </span>
+            <select
+              className="directory-filter-select"
+              value={followUpFilter}
+              onChange={(e) => setFollowUpFilter(e.target.value as FollowUpFilter)}
+            >
+              <option value="all">Follow-up: Any</option>
+              <option value="any">Has a follow-up date</option>
+              <option value="due-week">Due in the next 7 days</option>
+              <option value="overdue">Overdue follow-ups</option>
+            </select>
+          </div>
+
           {/* 4. Sort Order */}
           <div className="filter-select-wrap">
             <select
@@ -247,7 +381,7 @@ export default function AdminPatientsTab({
               value={sortBy}
               onChange={(e) =>
                 setSortBy(
-                  e.target.value as 'latest' | 'oldest' | 'visits' | 'spend' | 'name'
+                  e.target.value as 'latest' | 'oldest' | 'visits' | 'spend' | 'name' | 'followup'
                 )
               }
             >
@@ -256,6 +390,7 @@ export default function AdminPatientsTab({
               <option value="visits">Sort: Most Consultations</option>
               <option value="spend">Sort: Highest Lifetime Spend</option>
               <option value="name">Sort: Name (A to Z)</option>
+              <option value="followup">Sort: Follow-up Date (nearest)</option>
             </select>
           </div>
         </div>
@@ -326,6 +461,7 @@ export default function AdminPatientsTab({
                   <th style={{ minWidth: '220px' }}>Contact Details</th>
                   <th style={{ minWidth: '140px' }}>Consultations</th>
                   <th style={{ minWidth: '220px' }}>Latest Consultation</th>
+                  <th style={{ minWidth: '150px' }}>Next Follow-up</th>
                   <th style={{ minWidth: '130px' }}>Lifetime Spend</th>
                   <th style={{ minWidth: '150px', textAlign: 'right' }}>Actions</th>
                 </tr>
@@ -338,6 +474,7 @@ export default function AdminPatientsTab({
 
                   const latestAppt = patient.appointments[0];
                   const firstAppt = patient.appointments[patient.appointments.length - 1];
+                  const followUp = followUpByPatient.get(customerKey(patient.email, patient.phone));
 
                   return (
                     <tr
@@ -412,6 +549,18 @@ export default function AdminPatientsTab({
                         )}
                       </td>
 
+                      {/* Next Follow-up (from the prescription) */}
+                      <td>
+                        {followUp ? (
+                          <div className="fu-cell" title={followUp.text || undefined}>
+                            <strong>{formatReadableDate(followUp.date)}</strong>
+                            <span className={`fu-badge ${followUp.state}`}>{followUp.label}</span>
+                          </div>
+                        ) : (
+                          <span className="text-muted">—</span>
+                        )}
+                      </td>
+
                       {/* Lifetime Spend */}
                       <td>
                         <div className="patient-cell-financial">
@@ -461,6 +610,7 @@ export default function AdminPatientsTab({
               .reduce((sum, a) => sum + (a.amount || 800), 0);
 
             const latestAppt = patient.appointments[0];
+            const followUp = followUpByPatient.get(customerKey(patient.email, patient.phone));
 
             return (
               <div
@@ -502,6 +652,17 @@ export default function AdminPatientsTab({
                   <div className="card-detail-item">
                     <span>Latest Visit:</span>
                     <span>{formatReadableDate(latestAppt?.date)}</span>
+                  </div>
+                  <div className="card-detail-item">
+                    <span>Next Follow-up:</span>
+                    {followUp ? (
+                      <span className="fu-cell">
+                        <strong>{formatReadableDate(followUp.date)}</strong>
+                        <span className={`fu-badge ${followUp.state}`}>{followUp.label}</span>
+                      </span>
+                    ) : (
+                      <span>—</span>
+                    )}
                   </div>
                 </div>
 

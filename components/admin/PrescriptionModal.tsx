@@ -16,6 +16,7 @@ import {
   type Letterhead,
 } from '@/lib/prescriptionTemplate';
 import { Medicine } from '@/lib/medicines';
+import { useClinicSettings } from '@/lib/useClinicSettings';
 import { IconCross, IconPlus, IconTrash, IconMail, IconRefresh, IconFileText, IconPill, IconEdit, IconCopy, IconCheck } from './AdminIcons';
 
 // Fallback potency list, used only when the selected medicine has no potencies saved in the database.
@@ -37,6 +38,8 @@ interface PrescriptionModalProps {
   adminFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
   onClose: () => void;
   availableMedicines?: Medicine[];
+  /** Called after a prescription is saved (e.g. to refresh follow-up dates elsewhere). */
+  onSaved?: () => void;
 }
 
 function scheduleText(m: Pick<PrescriptionMedicine, 'morning' | 'afternoon' | 'night'>): string {
@@ -52,6 +55,53 @@ function parseSchedule(text: string): Pick<PrescriptionMedicine, 'morning' | 'af
 function todayIst(): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
 }
+
+/** YYYY-MM-DD + n days (calendar arithmetic, no timezone drift). */
+function addDaysIso(date: string, n: number): string {
+  const [y, m, d] = date.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d + n, 12)).toISOString().slice(0, 10);
+}
+
+/** Whole days from `from` to `to` (both YYYY-MM-DD). */
+function daysBetweenIso(from: string, to: string): number {
+  const f = from.split('-').map(Number);
+  const t = to.split('-').map(Number);
+  return Math.round((Date.UTC(t[0], t[1] - 1, t[2]) - Date.UTC(f[0], f[1] - 1, f[2])) / 86_400_000);
+}
+
+/** 2026-11-05 -> "Thu, 5 Nov 2026" */
+function formatFollowUpDate(date: string): string {
+  const [y, m, d] = date.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d, 12)).toLocaleDateString('en-GB', {
+    timeZone: 'UTC',
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
+}
+
+/** Text printed on the prescription: "After 2 weeks (Thu, 5 Nov 2026)". */
+function followUpText(rxDate: string, followUpDate: string): string {
+  const days = daysBetweenIso(rxDate, followUpDate);
+  const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+  const label =
+    days >= 30 && days % 30 === 0
+      ? plural(days / 30, 'month')
+      : days >= 7 && days % 7 === 0
+        ? plural(days / 7, 'week')
+        : plural(days, 'day');
+  return `After ${label} (${formatFollowUpDate(followUpDate)})`;
+}
+
+const FOLLOW_UP_CHIPS: { label: string; days: number }[] = [
+  { label: '3 days', days: 3 },
+  { label: '5 days', days: 5 },
+  { label: '1 week', days: 7 },
+  { label: '2 weeks', days: 14 },
+  { label: '3 weeks', days: 21 },
+  { label: '1 month', days: 30 },
+];
 
 /** Saves a Blob to the user's device as a file download. */
 function downloadBlob(blob: Blob, fileName: string) {
@@ -232,6 +282,7 @@ export default function PrescriptionModal({
   adminFetch,
   onClose,
   availableMedicines = [],
+  onSaved,
 }: PrescriptionModalProps) {
   const [loading, setLoading] = useState(false);
   const [prescription, setPrescription] = useState<Prescription | null>(null);
@@ -264,6 +315,10 @@ export default function PrescriptionModal({
   const removedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [advice, setAdvice] = useState('');
   const [followUp, setFollowUp] = useState('');
+  const [followUpDate, setFollowUpDate] = useState('');
+  // Days after the prescription date (null = date picked by hand). Keeps the date in step with the prescription date.
+  const [followUpDays, setFollowUpDays] = useState<number | null>(null);
+  const { isClosedOn } = useClinicSettings();
   const [sendTo, setSendTo] = useState('');
   const [busy, setBusy] = useState<'save' | 'pdf' | 'send' | 'whatsapp' | null>(null);
   const [dirty, setDirty] = useState(false);
@@ -302,12 +357,16 @@ export default function PrescriptionModal({
           setMedicines(rx.medicines);
           setAdvice(rx.advice);
           setFollowUp(rx.followUp);
+          setFollowUpDate(rx.followUpDate || '');
+          setFollowUpDays(rx.followUpDate ? daysBetweenIso(rx.date, rx.followUpDate) : null);
         } else {
           setDate(todayIst());
           setDiagnosis(appointment.reason || '');
           setMedicines([]);
           setAdvice('');
           setFollowUp('');
+          setFollowUpDate('');
+          setFollowUpDays(null);
         }
       } catch (err) {
         if (!cancelled) toast.error(err instanceof Error ? err.message : 'Failed to load prescription');
@@ -687,6 +746,34 @@ export default function PrescriptionModal({
 
   const hasMedicine = listWithPending().some((m) => m.name.trim());
 
+  // ---- follow-up: calculated from the prescription date ----
+  const applyFollowUpDate = (next: string, days: number | null) => {
+    setFollowUpDate(next);
+    setFollowUpDays(days);
+    setFollowUp(next ? followUpText(date, next) : '');
+    setDirty(true);
+  };
+
+  const pickFollowUpDays = (days: number) => {
+    if (!date) return;
+    applyFollowUpDate(addDaysIso(date, days), days);
+  };
+
+  const handleRxDateChange = (nextDate: string) => {
+    setDate(nextDate);
+    setDirty(true);
+    // Keep the same gap (e.g. "2 weeks") when the prescription date moves
+    if (followUpDate && followUpDays !== null && nextDate) {
+      const moved = addDaysIso(nextDate, followUpDays);
+      setFollowUpDate(moved);
+      setFollowUp(followUpText(nextDate, moved));
+    }
+  };
+
+  const clearFollowUp = () => {
+    applyFollowUpDate('', null);
+  };
+
   /** Preview of what is currently typed in the form (not saved yet). */
   const buildPreviewRx = (): Prescription => ({
     id: prescription?.id || 'preview',
@@ -700,6 +787,7 @@ export default function PrescriptionModal({
     medicines: listWithPending().filter((m) => m.name.trim()),
     advice,
     followUp,
+    followUpDate,
     createdAt: prescription?.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   });
@@ -738,11 +826,12 @@ export default function PrescriptionModal({
       const res = await adminFetch('/api/admin/prescriptions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ appointmentId: appointment.id, date, diagnosis, medicines: finalMeds, advice, followUp }),
+        body: JSON.stringify({ appointmentId: appointment.id, date, diagnosis, medicines: finalMeds, advice, followUp, followUpDate }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to save prescription');
       setPrescription(data.prescription);
+      onSaved?.();
       setDirty(false);
       if (!silent) toast.success('Prescription saved.');
       return data.prescription as Prescription;
@@ -934,7 +1023,7 @@ export default function PrescriptionModal({
             <div className="rx-row-2">
               <label className="rx-field">
                 <span>Date</span>
-                <input type="date" value={date} onChange={(e) => { setDate(e.target.value); setDirty(true); }} />
+                <input type="date" value={date} onChange={(e) => handleRxDateChange(e.target.value)} />
               </label>
               <label className="rx-field">
                 <span>Complaints / Diagnosis</span>
@@ -1186,6 +1275,18 @@ export default function PrescriptionModal({
 
             {/* ---------------- ADVICE / FOLLOW-UP / EMAIL ---------------- */}
             <section className="rx2-bottom" aria-label="Advice and follow-up">
+              <style>{`
+                .rx2-followup { gap: 8px; }
+                .rx2-followup .fu-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+                .rx2-followup .fu-chip { padding: 5px 12px; border-radius: 999px; border: 1.5px solid var(--line, #e2e8f0); background: #fff; color: var(--ink, #44476A); font-size: 12.5px; font-weight: 700; cursor: pointer; font-family: inherit; }
+                .rx2-followup .fu-chip:hover { border-color: var(--primary, #565ACF); color: var(--primary, #565ACF); }
+                .rx2-followup .fu-chip.active { background: var(--primary, #565ACF); border-color: var(--primary, #565ACF); color: #fff; }
+                .rx2-followup .fu-date-row { display: flex; gap: 8px; align-items: center; }
+                .rx2-followup .fu-date-row input { flex: 1; min-width: 0; }
+                .rx2-followup .fu-clear { border: none; background: #fef2f2; color: #b91c1c; font-weight: 700; font-size: 12.5px; padding: 8px 12px; border-radius: 8px; cursor: pointer; font-family: inherit; }
+                .rx2-followup .fu-note { font-size: 12.5px; line-height: 1.5; color: #475569; background: #f5f6ff; border: 1px solid #dde1f8; border-radius: 10px; padding: 8px 12px; }
+                .rx2-followup .fu-warn { color: #b45309; font-weight: 700; }
+              `}</style>
               <label className="rx-field rx2-advice">
                 <span>Advice / Diet</span>
                 <textarea
@@ -1195,15 +1296,57 @@ export default function PrescriptionModal({
                   onChange={(e) => { setAdvice(e.target.value); setDirty(true); }}
                 />
               </label>
-              <label className="rx-field">
+              <div className="rx-field rx2-followup">
                 <span>Follow-up</span>
+                <div className="fu-chips" role="group" aria-label="Follow-up after">
+                  {FOLLOW_UP_CHIPS.map((c) => (
+                    <button
+                      key={c.days}
+                      type="button"
+                      className={`fu-chip ${followUpDays === c.days && followUpDate ? 'active' : ''}`}
+                      onClick={() => pickFollowUpDays(c.days)}
+                    >
+                      {c.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="fu-date-row">
+                  <input
+                    type="date"
+                    value={followUpDate}
+                    min={date ? addDaysIso(date, 1) : undefined}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (!v) return clearFollowUp();
+                      applyFollowUpDate(v, date ? daysBetweenIso(date, v) : null);
+                    }}
+                    aria-label="Follow-up date"
+                  />
+                  {followUpDate && (
+                    <button type="button" className="fu-clear" onClick={clearFollowUp}>
+                      Clear
+                    </button>
+                  )}
+                </div>
                 <input
                   type="text"
                   value={followUp}
-                  placeholder="e.g. After 2 weeks / 2026-11-05"
+                  placeholder="Printed on the prescription, e.g. After 2 weeks"
                   onChange={(e) => { setFollowUp(e.target.value); setDirty(true); }}
+                  aria-label="Follow-up text on the prescription"
                 />
-              </label>
+                {followUpDate && (
+                  <div className="fu-note">
+                    <strong>{formatFollowUpDate(followUpDate)}</strong>
+                    {' '}&middot; the patient gets an email reminder on{' '}
+                    {addDaysIso(followUpDate, -1) > date ? `${formatFollowUpDate(addDaysIso(followUpDate, -1))} and ` : ''}
+                    the day itself.
+                    {isClosedOn(followUpDate) && (
+                      <span className="fu-warn"> The clinic has no sitting on this weekday.</span>
+                    )}
+                  </div>
+                )}
+              </div>
               <label className="rx-field">
                 <span>
                   <IconMail size={13} /> Patient email (for PDF)

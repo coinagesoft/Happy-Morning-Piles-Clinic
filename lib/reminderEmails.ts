@@ -108,6 +108,47 @@ export function patientReminderEmail(a: ReminderAppointment, lead: number, dayWo
   return { subject, html, text };
 }
 
+/** Follow-up visit reminder, from the follow-up date the doctor set on the prescription. */
+export function followUpReminderEmail(opts: {
+  fullName: string;
+  followUpDate: string; // YYYY-MM-DD
+  daysBefore: number; // 1 = tomorrow, 0 = today
+  bookingUrl?: string;
+}) {
+  const dateLong = formatDateLong(opts.followUpDate);
+  const when =
+    opts.daysBefore === 0 ? 'today' : opts.daysBefore === 1 ? 'tomorrow' : `on ${dateLong}`;
+
+  const subject =
+    opts.daysBefore === 0
+      ? `Follow-up visit due today - ${CLINIC.name}`
+      : `Reminder: your follow-up visit is ${when} (${dateLong}) - ${CLINIC.name}`;
+  const intro = `This is a gentle reminder that your follow-up visit with ${CLINIC.doctor.name} is due ${when}.`;
+
+  const action = opts.bookingUrl
+    ? `<p style="margin:20px 0"><a href="${esc(opts.bookingUrl)}" style="background:#166534;color:#fff;text-decoration:none;padding:12px 20px;border-radius:8px;display:inline-block">Book your follow-up slot</a></p>`
+    : '';
+
+  const html = wrap(`
+    <p style="margin:0 0 12px">Hello ${esc(opts.fullName)},</p>
+    <p style="margin:0 0 16px">${esc(intro)}</p>
+    <table style="border-collapse:collapse;width:100%;font-size:14px">
+      <tr><td style="padding:6px 0;color:#6b7280;width:120px">Doctor</td><td>${esc(CLINIC.doctor.name)}</td></tr>
+      <tr><td style="padding:6px 0;color:#6b7280">Follow-up date</td><td><strong>${esc(dateLong)}</strong></td></tr>
+    </table>
+    ${action}
+    <p style="margin:16px 0 0;font-size:13px;color:#4b5563">To book or change your visit, please call us on ${esc(CLINIC.phone.display)}. If you have already booked, you can ignore this message.</p>
+  `);
+
+  const text =
+    `Hello ${opts.fullName},\n\n${intro}\n\n` +
+    `Doctor: ${CLINIC.doctor.name}\nFollow-up date: ${dateLong}\n` +
+    `${opts.bookingUrl ? `Book your slot: ${opts.bookingUrl}\n` : ''}` +
+    `\nTo book or change your visit, call ${CLINIC.phone.display}. If you have already booked, you can ignore this message.\n\n${CLINIC.name}`;
+
+  return { subject, html, text };
+}
+
 export function doctorDigestEmail(date: string, list: ReminderAppointment[]) {
   const dateLong = formatDateLong(date);
   const subject =

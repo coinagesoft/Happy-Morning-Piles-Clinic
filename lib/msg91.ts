@@ -10,6 +10,7 @@
  *   MSG91_WHATSAPP_LANGUAGE               template language code, default "en"
  *   MSG91_WHATSAPP_TEMPLATE               reminder template name         (e.g. "reminder")
  *   MSG91_WHATSAPP_TEMPLATE_CONFIRMATION  booking-confirmation template   (e.g. "reminder1")
+ *   MSG91_WHATSAPP_TEMPLATE_FOLLOWUP      follow-up reminder template     (e.g. "followup_reminder")
  */
 
 const ENDPOINT =
@@ -31,6 +32,11 @@ export function isMsg91Configured(): boolean {
 /** Booking-confirmation template is configured (used right after payment). */
 export function isMsg91ConfirmationConfigured(): boolean {
   return baseConfigured() && Boolean(process.env.MSG91_WHATSAPP_TEMPLATE_CONFIRMATION);
+}
+
+/** Follow-up reminder template is configured (used for the follow-up date set in a prescription). */
+export function isMsg91FollowUpConfigured(): boolean {
+  return baseConfigured() && Boolean(process.env.MSG91_WHATSAPP_TEMPLATE_FOLLOWUP);
 }
 
 /** 10-digit Indian mobile (or already prefixed) -> 91XXXXXXXXXX */

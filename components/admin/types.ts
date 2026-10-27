@@ -32,6 +32,16 @@ export interface PatientGroup {
   appointments: Appointment[];
 }
 
+export interface FollowUpRecord {
+  prescriptionId: string;
+  email: string;
+  phone: string;
+  prescriptionDate: string;
+  followUpDate: string;
+  followUp: string;
+  updatedAt: string;
+}
+
 export interface RevenueDailyItem {
   date: string;
   label: string;
@@ -83,4 +93,3 @@ export interface RevenueData {
   reasonBreakdown: RevenueReasonBreakdown[];
   paymentMethodBreakdown: RevenuePaymentMethodBreakdown[];
 }
-

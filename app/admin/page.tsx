@@ -9,6 +9,7 @@ import {
   AdminStats,
   PatientGroup,
   RevenueData,
+  FollowUpRecord,
 } from '@/components/admin/types';
 
 // Admin Modular Components & Tabs
@@ -89,6 +90,9 @@ export default function AdminPage() {
 
   // Admin Reschedule Appointment Drawer State
   const [rescheduleAppointment, setRescheduleAppointment] = useState<Appointment | null>(null);
+
+  // Follow-up dates set on prescriptions (shown in the Patient Directory)
+  const [followUps, setFollowUps] = useState<FollowUpRecord[]>([]);
 
   // Prescription Modal State
   const [prescriptionAppointment, setPrescriptionAppointment] = useState<Appointment | null>(null);
@@ -290,6 +294,16 @@ export default function AdminPage() {
       .finally(() => setIsLoadingAppointments(false));
   }, [adminFetch]);
 
+  // Fetch follow-up dates from prescriptions
+  const loadFollowUps = useCallback(() => {
+    adminFetch(`/api/admin/follow-ups?_t=${Date.now()}`, { cache: 'no-store' })
+      .then((res) => res.json())
+      .then((data) => {
+        if (Array.isArray(data.followUps)) setFollowUps(data.followUps);
+      })
+      .catch((err) => console.error('Failed to load follow-ups:', err));
+  }, [adminFetch]);
+
   // Fetch Revenue Analytics
   const loadRevenue = useCallback(() => {
     adminFetch(`/api/admin/revenue?_t=${Date.now()}`, {
@@ -335,8 +349,9 @@ export default function AdminPage() {
       loadRevenue();
       loadOverrides();
       loadMedicines();
+      loadFollowUps();
     }
-  }, [isAuthenticated, loadAppointments, loadRevenue, loadOverrides, loadMedicines]);
+  }, [isAuthenticated, loadAppointments, loadRevenue, loadOverrides, loadMedicines, loadFollowUps]);
 
   // Update Appointment Status (Instant Optimistic UI + Server Sync)
   const handleUpdateStatus = async (
@@ -639,6 +654,7 @@ export default function AdminPage() {
         {activeTab === 'patients' && (
           <AdminPatientsTab
             patients={patientDirectory}
+            followUps={followUps}
             onSelectPatient={(patient) => setSelectedPatient(patient)}
           />
         )}
@@ -703,6 +719,7 @@ export default function AdminPage() {
         appointment={prescriptionAppointment}
         adminFetch={adminFetch}
         availableMedicines={medicines}
+        onSaved={loadFollowUps}
         onClose={() => setPrescriptionAppointment(null)}
       />
 

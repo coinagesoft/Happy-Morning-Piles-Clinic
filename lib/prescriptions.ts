@@ -15,9 +15,42 @@ interface PrescriptionRow extends RowDataPacket {
   medicines: string | null;
   advice: string | null;
   follow_up: string | null;
+  follow_up_date: string | null;
   emailed_at: string | null;
   created_at: string;
   updated_at: string;
+}
+
+declare global {
+  // eslint-disable-next-line no-var
+  var __rxFollowUpColumn: Promise<void> | undefined;
+}
+
+/**
+ * Makes sure prescriptions.follow_up_date exists. Runs on its own (not tied to the cached
+ * schema setup), so it also works while the dev server is hot-reloading without a restart.
+ */
+async function ensureFollowUpColumn(): Promise<void> {
+  if (!global.__rxFollowUpColumn) {
+    global.__rxFollowUpColumn = (async () => {
+      const pool = getPool();
+      const [cols] = await pool.query<RowDataPacket[]>(
+        `SHOW COLUMNS FROM prescriptions LIKE 'follow_up_date'`
+      );
+      if (cols.length === 0) {
+        await pool.query(`ALTER TABLE prescriptions ADD COLUMN follow_up_date VARCHAR(16) NULL`);
+      }
+      try {
+        await pool.query(`ALTER TABLE prescriptions ADD INDEX idx_rx_follow_up_date (follow_up_date)`);
+      } catch {
+        // index already exists
+      }
+    })().catch((err) => {
+      global.__rxFollowUpColumn = undefined; // try again next time
+      throw err;
+    });
+  }
+  return global.__rxFollowUpColumn;
 }
 
 function parseMedicines(raw: string | null): PrescriptionMedicine[] {
@@ -43,6 +76,7 @@ function mapRow(row: PrescriptionRow): Prescription {
     medicines: parseMedicines(row.medicines),
     advice: row.advice || '',
     followUp: row.follow_up || '',
+    followUpDate: row.follow_up_date || '',
     emailedAt: row.emailed_at || undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -115,6 +149,7 @@ export type PrescriptionInput = Omit<
 /** One prescription per appointment: creates it, or updates the existing one. */
 export async function savePrescription(input: PrescriptionInput): Promise<Prescription> {
   await ensureDatabaseSchema();
+  await ensureFollowUpColumn();
   const pool = getPool();
   const now = new Date().toISOString();
   const existing = await getPrescriptionByAppointment(input.appointmentId);
@@ -124,8 +159,8 @@ export async function savePrescription(input: PrescriptionInput): Promise<Prescr
   await pool.execute(
     `INSERT INTO prescriptions (
       id, appointment_id, patient_name, patient_email, patient_phone, patient_age,
-      prescription_date, diagnosis, medicines, advice, follow_up, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      prescription_date, diagnosis, medicines, advice, follow_up, follow_up_date, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON DUPLICATE KEY UPDATE
       patient_name = VALUES(patient_name),
       patient_email = VALUES(patient_email),
@@ -136,6 +171,7 @@ export async function savePrescription(input: PrescriptionInput): Promise<Prescr
       medicines = VALUES(medicines),
       advice = VALUES(advice),
       follow_up = VALUES(follow_up),
+      follow_up_date = VALUES(follow_up_date),
       updated_at = VALUES(updated_at)`,
     [
       id,
@@ -149,12 +185,45 @@ export async function savePrescription(input: PrescriptionInput): Promise<Prescr
       medicines,
       input.advice,
       input.followUp,
+      input.followUpDate || null,
       existing?.createdAt || now,
       now,
     ]
   );
 
   return (await getPrescriptionById(id)) as Prescription;
+}
+
+export interface FollowUpRecord {
+  prescriptionId: string;
+  email: string;
+  phone: string;
+  prescriptionDate: string;
+  followUpDate: string; // '' when the doctor did not set one
+  followUp: string;
+  updatedAt: string;
+}
+
+/** Every prescription's follow-up info (newest first). The patient directory shows the latest per patient. */
+export async function listFollowUps(limit = 3000): Promise<FollowUpRecord[]> {
+  await ensureDatabaseSchema();
+  await ensureFollowUpColumn();
+  const [rows] = await getPool().query<PrescriptionRow[]>(
+    `SELECT id, patient_email, patient_phone, prescription_date, follow_up, follow_up_date, updated_at
+       FROM prescriptions
+      ORDER BY prescription_date DESC, updated_at DESC
+      LIMIT ?`,
+    [Math.max(1, Math.min(10000, Math.floor(limit)))]
+  );
+  return rows.map((r) => ({
+    prescriptionId: r.id,
+    email: r.patient_email,
+    phone: r.patient_phone,
+    prescriptionDate: r.prescription_date,
+    followUpDate: r.follow_up_date || '',
+    followUp: r.follow_up || '',
+    updatedAt: r.updated_at,
+  }));
 }
 
 export async function markPrescriptionEmailed(id: string): Promise<void> {
