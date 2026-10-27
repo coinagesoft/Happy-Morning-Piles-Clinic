@@ -2616,7 +2616,7 @@ p {
 .footer-bottom-meditro {
   border-top: 1px solid #DCE0FA;
   padding-top: 24px;
-  text-align: center;
+  text-align: right;
   font-size: 14px;
   color: var(--muted);
 }
