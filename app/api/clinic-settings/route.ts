@@ -56,7 +56,11 @@ async function handleSave(request: NextRequest) {
     );
   } catch (err) {
     console.error('Error saving clinic settings:', err);
-    return NextResponse.json({ error: 'Failed to save appointment settings.' }, { status: 500 });
+    const detail = err instanceof Error ? err.message : '';
+    return NextResponse.json(
+      { error: detail ? `Failed to save appointment settings: ${detail}` : 'Failed to save appointment settings.' },
+      { status: 500 }
+    );
   }
 }
 

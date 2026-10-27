@@ -23,6 +23,9 @@ import {
   expandBookedTimes,
   isClinicClosedOn,
   getWeekday,
+  getLocations,
+  getBookableLocations,
+  sameLocation,
   WEEKDAY_NAMES,
 } from '@/lib/slots';
 import { formatSlotLabel } from '@/lib/slots';
@@ -60,7 +63,8 @@ export async function GET(request: NextRequest) {
   }
 
   const settings = await getClinicSettings();
-  const daySlots = generateSlots(settings, date);
+  const locationParam = searchParams.get('location')?.trim() || undefined;
+  const daySlots = generateSlots(settings, date, locationParam);
   const slotValues = daySlots.map((s) => s.value);
   const step = getSlotStep(settings);
 
@@ -79,7 +83,7 @@ export async function GET(request: NextRequest) {
   return NextResponse.json(
     {
       date,
-      isClinicClosed: isClinicClosedOn(settings, date),
+      isClinicClosed: isClinicClosedOn(settings, date, locationParam),
       slots: daySlots,
       bookedSlots: allBookedSlots,
       doctorBlockedSlots,
@@ -108,6 +112,7 @@ export async function POST(request: NextRequest) {
       message,
       paymentId,
       paymentMethod,
+      location: requestedLocation,
     } = body;
 
     // Validation
@@ -166,9 +171,10 @@ export async function POST(request: NextRequest) {
     }
     const [year, month, day] = dateParts;
     const dateUtc = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
-    if (isNaN(dateUtc.getTime()) || dateUtc.getUTCDay() === 0) {
+    // Closed weekdays (Sunday by default) are enforced below from the doctor's day-wise schedule.
+    if (isNaN(dateUtc.getTime())) {
       return NextResponse.json(
-        { error: 'Appointments cannot be booked on Sundays as clinic is closed.' },
+        { error: 'Invalid date. Expected YYYY-MM-DD.' },
         { status: 400 }
       );
     }
@@ -217,19 +223,40 @@ export async function POST(request: NextRequest) {
     }
 
     const settings = await getClinicSettings();
-    if (isClinicClosedOn(settings, date)) {
+
+    // The patient must pick one of the doctor's locations (auto-picked when there is only one).
+    const bookableLocations = getBookableLocations(settings);
+    let bookingLocation: string | undefined;
+    if (typeof requestedLocation === 'string' && requestedLocation.trim()) {
+      bookingLocation = getLocations(settings).find((l) => sameLocation(l, requestedLocation));
+      if (!bookingLocation) {
+        return NextResponse.json(
+          { error: 'That clinic location is not available. Please choose a location from the list.' },
+          { status: 400 }
+        );
+      }
+    } else if (bookableLocations.length === 1) {
+      bookingLocation = bookableLocations[0];
+    } else {
+      return NextResponse.json(
+        { error: 'Please choose a clinic location before booking.' },
+        { status: 400 }
+      );
+    }
+
+    if (isClinicClosedOn(settings, date, bookingLocation)) {
       return NextResponse.json(
         {
-          error: `The doctor does not take appointments on ${WEEKDAY_NAMES[getWeekday(date)]}s. Please choose another date.`,
+          error: `The doctor does not take appointments at ${bookingLocation} on ${WEEKDAY_NAMES[getWeekday(date)]}s. Please choose another date.`,
         },
         { status: 400 }
       );
     }
-    const daySlots = generateSlots(settings, date);
+    const daySlots = generateSlots(settings, date, bookingLocation);
     const slotValues = daySlots.map((s) => s.value);
     if (!slotValues.includes(time)) {
       return NextResponse.json(
-        { error: `${time} is not an available appointment slot on ${WEEKDAY_NAMES[getWeekday(date)]}. Please select one of the available slots.` },
+        { error: `${time} is not an available appointment slot at ${bookingLocation} on ${WEEKDAY_NAMES[getWeekday(date)]}. Please select one of the available slots.` },
         { status: 400 }
       );
     }
@@ -277,7 +304,7 @@ export async function POST(request: NextRequest) {
       paymentId: paymentId.trim(),
       paidAt: new Date().toISOString(),
       notes: '',
-      location: daySlots.find((slot) => slot.value === time)?.location,
+      location: bookingLocation,
     };
 
     let meetLink = '';

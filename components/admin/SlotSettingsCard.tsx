@@ -9,13 +9,16 @@ import {
   DaySchedule,
   MAX_BUFFER,
   MAX_DURATION,
+  MAX_LOCATIONS,
   MAX_LOCATION_LENGTH,
   MIN_DURATION,
   WEEKDAY_DISPLAY_ORDER,
   WEEKDAY_NAMES,
   formatSlotLabel,
   generateSlots,
+  getLocations,
   normalizeClinicSettings,
+  sameLocation,
 } from '@/lib/slots';
 
 const DURATION_PRESETS = [10, 15, 20, 30, 45, 60];
@@ -26,6 +29,8 @@ interface Draft {
   bufferTime: string;
   /** Index = JS weekday (0 = Sunday ... 6 = Saturday). */
   weekly: DaySchedule[];
+  /** Locations the doctor added; timings can only use these. */
+  locations: string[];
 }
 
 function toDraft(settings: ClinicSettings): Draft {
@@ -36,6 +41,7 @@ function toDraft(settings: ClinicSettings): Draft {
       closed: d.closed,
       sessions: d.sessions.map((s) => ({ ...s, location: s.location || DEFAULT_LOCATION })),
     })),
+    locations: getLocations(settings),
   };
 }
 
@@ -67,7 +73,82 @@ export default function SlotSettingsCard({ onSaved }: SlotSettingsCardProps) {
   const [formDays, setFormDays] = useState<number[]>([1]);
   const [formStart, setFormStart] = useState('09:30');
   const [formEnd, setFormEnd] = useState('13:00');
-  const [formLocation, setFormLocation] = useState(DEFAULT_LOCATION);
+  const [formLocation, setFormLocation] = useState('');
+  // The dropdown only offers the added locations, so fall back to the first one
+  const effectiveFormLocation = draft.locations.some((l) => sameLocation(l, formLocation))
+    ? draft.locations.find((l) => sameLocation(l, formLocation)) || ''
+    : draft.locations[0] || '';
+
+  // ---- Locations list -----------------------------------------------------------
+  const [newLocation, setNewLocation] = useState('');
+  const [locationError, setLocationError] = useState('');
+  const [renaming, setRenaming] = useState<{ index: number; value: string } | null>(null);
+
+  const timingsAtLocation = (location: string) =>
+    draft.weekly.reduce(
+      (n, d) => n + d.sessions.filter((x) => sameLocation(x.location, location)).length,
+      0
+    );
+
+  const handleAddLocation = () => {
+    const name = newLocation.trim().slice(0, MAX_LOCATION_LENGTH);
+    if (!name) {
+      setLocationError('Enter a location name.');
+      return;
+    }
+    if (draft.locations.some((l) => sameLocation(l, name))) {
+      setLocationError('This location is already added.');
+      return;
+    }
+    if (draft.locations.length >= MAX_LOCATIONS) {
+      setLocationError(`You can add at most ${MAX_LOCATIONS} locations.`);
+      return;
+    }
+    update({ locations: [...draft.locations, name] });
+    setNewLocation('');
+    setLocationError('');
+  };
+
+  const handleRemoveLocation = (index: number) => {
+    const name = draft.locations[index];
+    if (draft.locations.length <= 1) {
+      setLocationError('Keep at least one location.');
+      return;
+    }
+    const used = timingsAtLocation(name);
+    if (used > 0) {
+      setLocationError(
+        `"${name}" is used by ${used} timing${used === 1 ? '' : 's'}. Remove or change those timings first.`
+      );
+      return;
+    }
+    setLocationError('');
+    update({ locations: draft.locations.filter((_, i) => i !== index) });
+  };
+
+  const handleSaveRename = () => {
+    if (!renaming) return;
+    const name = renaming.value.trim().slice(0, MAX_LOCATION_LENGTH);
+    const old = draft.locations[renaming.index];
+    if (!name) {
+      setLocationError('Enter a location name.');
+      return;
+    }
+    if (draft.locations.some((l, i) => i !== renaming.index && sameLocation(l, name))) {
+      setLocationError('This location is already added.');
+      return;
+    }
+    setLocationError('');
+    // Timings that used the old name follow the rename
+    update({
+      locations: draft.locations.map((l, i) => (i === renaming.index ? name : l)),
+      weekly: draft.weekly.map((d) => ({
+        ...d,
+        sessions: d.sessions.map((x) => (sameLocation(x.location, old) ? { ...x, location: name } : x)),
+      })),
+    });
+    setRenaming(null);
+  };
   const [editing, setEditing] = useState<{ dow: number; index: number } | null>(null);
   const [formError, setFormError] = useState('');
   const [showPreview, setShowPreview] = useState(false);
@@ -83,7 +164,7 @@ export default function SlotSettingsCard({ onSaved }: SlotSettingsCardProps) {
     setFormDays([1]);
     setFormStart('09:30');
     setFormEnd('13:00');
-    setFormLocation(DEFAULT_LOCATION);
+    setFormLocation('');
   };
 
   const handleSubmitTiming = () => {
@@ -92,7 +173,11 @@ export default function SlotSettingsCard({ onSaved }: SlotSettingsCardProps) {
       setFormError('Select at least one day.');
       return;
     }
-    const location = formLocation.trim() || DEFAULT_LOCATION;
+    const location = effectiveFormLocation;
+    if (!location) {
+      setFormError('Add a location first, then pick it for this timing.');
+      return;
+    }
 
     // Start from the current weekly list (minus the entry being edited)
     const next: DaySchedule[] = draft.weekly.map((d, i) => ({
@@ -109,6 +194,7 @@ export default function SlotSettingsCard({ onSaved }: SlotSettingsCardProps) {
       slotDuration: Number(draft.slotDuration),
       bufferTime: Number(draft.bufferTime),
       weekly: next.map((d) => ({ closed: d.sessions.length === 0, sessions: d.sessions })),
+      locations: draft.locations,
     });
     if (!check.settings) {
       setFormError(check.error || 'Please check the timing.');
@@ -124,7 +210,7 @@ export default function SlotSettingsCard({ onSaved }: SlotSettingsCardProps) {
     setFormDays([dow]);
     setFormStart(session.start);
     setFormEnd(session.end);
-    setFormLocation(session.location || DEFAULT_LOCATION);
+    setFormLocation(session.location || '');
     setFormError('');
   };
 
@@ -148,19 +234,13 @@ export default function SlotSettingsCard({ onSaved }: SlotSettingsCardProps) {
     (d) => WEEKDAY_NAMES[d]
   );
 
-  // Locations already used, offered as suggestions in the location field
-  const knownLocations = useMemo(() => {
-    const set = new Set<string>([DEFAULT_LOCATION]);
-    draft.weekly.forEach((d) => d.sessions.forEach((x) => x.location && set.add(x.location)));
-    return Array.from(set);
-  }, [draft.weekly]);
-
   const validation = useMemo(
     () =>
       normalizeClinicSettings({
         slotDuration: draft.slotDuration === '' ? NaN : Number(draft.slotDuration),
         bufferTime: draft.bufferTime === '' ? NaN : Number(draft.bufferTime),
         weekly: draft.weekly,
+        locations: draft.locations,
       }),
     [draft]
   );
@@ -309,6 +389,19 @@ export default function SlotSettingsCard({ onSaved }: SlotSettingsCardProps) {
         .weekday-preview-row { display: flex; gap: 12px; align-items: flex-start; margin-top: 10px; }
         .weekday-preview-name { min-width: 92px; font-size: 13px; font-weight: 700; padding-top: 6px; }
         .weekday-preview-closed { font-size: 13px; color: #94a3b8; padding-top: 6px; }
+        .slot-settings-locations { margin-top: 22px; }
+        .location-add-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+        .location-add-row .admin-input { flex: 1 1 220px; max-width: 360px; }
+        .location-add-row .btn-save-override { padding: 10px 22px; }
+        .location-list { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+        .location-item {
+          display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+          padding: 10px 14px; border: 1.5px solid var(--line, #e2e8f0); border-radius: 12px; background: #fff;
+        }
+        .location-name { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+        .location-name strong { font-size: 14px; color: var(--primary-dark, #1F2278); }
+        .location-name small { font-size: 12px; color: #64748b; }
+        .location-rename-input { flex: 1 1 220px; max-width: 360px; }
         @media (max-width: 720px) { .slot-settings-grid { grid-template-columns: 1fr; } }
       `}</style>
 
@@ -377,6 +470,116 @@ export default function SlotSettingsCard({ onSaved }: SlotSettingsCardProps) {
         </div>
       </div>
 
+      <div className="slot-settings-locations">
+        <label className="slot-settings-label" style={{ fontWeight: 700, fontSize: 13 }}>
+          Clinic locations
+        </label>
+        <p className="field-hint" style={{ marginBottom: 10 }}>
+          Add every place where the doctor sits. These are the only locations you can pick for the
+          timings below, and patients choose one of them first when booking.
+        </p>
+
+        <div className="location-add-row">
+          <input
+            type="text"
+            className="admin-input"
+            placeholder="e.g. Akurdi Clinic"
+            maxLength={MAX_LOCATION_LENGTH}
+            value={newLocation}
+            onChange={(e) => {
+              setLocationError('');
+              setNewLocation(e.target.value);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                handleAddLocation();
+              }
+            }}
+            aria-label="New location name"
+          />
+          <button type="button" className="btn btn-save-override" onClick={handleAddLocation}>
+            Add location
+          </button>
+        </div>
+        {locationError && <div className="slot-settings-error">{locationError}</div>}
+
+        {draft.locations.length === 0 ? (
+          <p className="field-hint" style={{ marginTop: 10 }}>
+            No locations yet. Add one above to start adding timings.
+          </p>
+        ) : (
+          <ul className="location-list">
+            {draft.locations.map((loc, index) => {
+              const used = timingsAtLocation(loc);
+              const renamingHere = renaming && renaming.index === index ? renaming : null;
+              const isRenaming = renamingHere !== null;
+              return (
+                <li key={loc} className="location-item">
+                  {renamingHere ? (
+                    <input
+                      type="text"
+                      className="admin-input location-rename-input"
+                      maxLength={MAX_LOCATION_LENGTH}
+                      value={renamingHere.value}
+                      autoFocus
+                      onChange={(e) => setRenaming({ index, value: e.target.value })}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleSaveRename();
+                        }
+                        if (e.key === 'Escape') setRenaming(null);
+                      }}
+                      aria-label={`Rename ${loc}`}
+                    />
+                  ) : (
+                    <span className="location-name">
+                      <strong>{loc}</strong>
+                      <small>
+                        {used === 0 ? 'No timings yet' : `${used} timing${used === 1 ? '' : 's'}`}
+                      </small>
+                    </span>
+                  )}
+                  <span className="timing-row-actions">
+                    {isRenaming ? (
+                      <>
+                        <button type="button" className="weekday-copy-btn" onClick={handleSaveRename}>
+                          Save
+                        </button>
+                        <button type="button" className="weekday-copy-btn" onClick={() => setRenaming(null)}>
+                          Cancel
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          className="weekday-copy-btn"
+                          onClick={() => {
+                            setLocationError('');
+                            setRenaming({ index, value: loc });
+                          }}
+                        >
+                          Rename
+                        </button>
+                        <button
+                          type="button"
+                          className="slot-settings-remove"
+                          onClick={() => handleRemoveLocation(index)}
+                        >
+                          Remove
+                        </button>
+                      </>
+                    )}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+
       <div className="slot-settings-sessions">
         <label className="slot-settings-label" style={{ fontWeight: 700, fontSize: 13 }}>
           {editing ? `Edit timing (${WEEKDAY_NAMES[editing.dow]})` : 'Add doctor timing'}
@@ -425,20 +628,23 @@ export default function SlotSettingsCard({ onSaved }: SlotSettingsCardProps) {
             </div>
             <div className="timing-field timing-field-grow">
               <span>Location</span>
-              <input
-                type="text"
-                list="doctor-location-options"
+              <select
                 className="admin-input"
-                placeholder="e.g. Akurdi Clinic"
-                maxLength={MAX_LOCATION_LENGTH}
-                value={formLocation}
-                onChange={(e) => setFormLocation(e.target.value)}
-              />
-              <datalist id="doctor-location-options">
-                {knownLocations.map((loc) => (
-                  <option key={loc} value={loc} />
+                value={effectiveFormLocation}
+                onChange={(e) => {
+                  setFormError('');
+                  setFormLocation(e.target.value);
+                }}
+                disabled={draft.locations.length === 0}
+                aria-label="Location for this timing"
+              >
+                {draft.locations.length === 0 && <option value="">Add a location first</option>}
+                {draft.locations.map((loc) => (
+                  <option key={loc} value={loc}>
+                    {loc}
+                  </option>
                 ))}
-              </datalist>
+              </select>
             </div>
             <div className="timing-form-buttons">
               <button type="button" className="btn btn-save-override" onClick={handleSubmitTiming}>

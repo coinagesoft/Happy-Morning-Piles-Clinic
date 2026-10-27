@@ -9,6 +9,7 @@
 
 export const DEFAULT_LOCATION = 'Akurdi Clinic';
 export const MAX_LOCATION_LENGTH = 120;
+export const MAX_LOCATIONS = 12;
 
 export interface SessionWindow {
   start: string; // HH:mm
@@ -31,6 +32,11 @@ export interface ClinicSettings {
   sessions: SessionWindow[];
   /** Day-wise timings + location. */
   weekly: WeeklySchedule;
+  /**
+   * Clinic locations added by the doctor. Timings can only use one of these, and
+   * patients pick one of them first when booking.
+   */
+  locations: string[];
 }
 
 export interface ClinicSlot {
@@ -82,7 +88,27 @@ export const DEFAULT_CLINIC_SETTINGS: ClinicSettings = {
     closed: d.closed,
     sessions: d.sessions.map((s) => ({ ...s })),
   })),
+  locations: [DEFAULT_LOCATION],
 };
+
+/** Case-insensitive location comparison. */
+export function sameLocation(a?: string | null, b?: string | null): boolean {
+  return (a || '').trim().toLowerCase() === (b || '').trim().toLowerCase();
+}
+
+/** Every location the doctor has added (plus any still used by a timing), without duplicates. */
+export function getLocations(settings: ClinicSettings): string[] {
+  const out: string[] = [];
+  const add = (value?: string) => {
+    const v = (value || '').trim();
+    if (v && !out.some((x) => sameLocation(x, v))) out.push(v);
+  };
+  (settings.locations || []).forEach(add);
+  (settings.weekly || []).forEach((d) => d.sessions.forEach((x) => add(x.location)));
+  (settings.sessions || []).forEach((x) => add(x.location));
+  if (out.length === 0) add(DEFAULT_LOCATION);
+  return out;
+}
 
 /** Weekday (0 = Sunday) of a YYYY-MM-DD date, independent of the server time zone. */
 export function getWeekday(date: string): number {
@@ -98,19 +124,39 @@ export function getDaySchedule(settings: ClinicSettings, date: string): DaySched
 }
 
 /** True when the clinic has no timings at all on that date's weekday (e.g. Sunday). */
-export function isClinicClosedOn(settings: ClinicSettings, date: string): boolean {
+export function isClinicClosedOn(
+  settings: ClinicSettings,
+  date: string,
+  location?: string
+): boolean {
   const d = getDaySchedule(settings, date);
-  return d.closed || d.sessions.length === 0;
+  if (d.closed || d.sessions.length === 0) return true;
+  if (location) {
+    return !d.sessions.some((x) => sameLocation(x.location || DEFAULT_LOCATION, location));
+  }
+  return false;
 }
 
 /** Closed weekdays as JS day numbers, e.g. [0]. */
-export function getClosedWeekdays(settings: ClinicSettings): number[] {
+export function getClosedWeekdays(settings: ClinicSettings, location?: string): number[] {
   const out: number[] = [];
   for (let i = 0; i < 7; i++) {
     const d = settings.weekly?.[i];
-    if (!d || d.closed || d.sessions.length === 0) out.push(i);
+    if (!d || d.closed || d.sessions.length === 0) {
+      out.push(i);
+    } else if (
+      location &&
+      !d.sessions.some((x) => sameLocation(x.location || DEFAULT_LOCATION, location))
+    ) {
+      out.push(i);
+    }
   }
   return out;
+}
+
+/** Locations that have at least one open weekday (the ones patients can book). */
+export function getBookableLocations(settings: ClinicSettings): string[] {
+  return getLocations(settings).filter((loc) => getClosedWeekdays(settings, loc).length < 7);
 }
 
 /** "9:30 AM - 1:00 PM, 6:30 PM - 8:00 PM" style summary of one weekday. */
@@ -154,10 +200,12 @@ function slotsFromSessions(
   sessions: SessionWindow[],
   slotDuration: number,
   step: number,
-  into: Map<string, ClinicSlot>
+  into: Map<string, ClinicSlot>,
+  location?: string
 ) {
   for (const session of sessions) {
     if (!isValidTime(session.start) || !isValidTime(session.end)) continue;
+    if (location && !sameLocation(session.location || DEFAULT_LOCATION, location)) continue;
     const start = timeToMinutes(session.start);
     const end = timeToMinutes(session.end);
     for (let t = start; t + slotDuration <= end; t += step) {
@@ -177,21 +225,26 @@ function slotsFromSessions(
  * Generates bookable slots, sorted by time.
  * - With `date`: only the slots of that weekday (empty when the clinic is closed).
  * - Without `date`: the union of every open weekday (used for the "known slot grid").
+ * - With `location`: only the sessions held at that location.
  */
-export function generateSlots(settings: ClinicSettings, date?: string): ClinicSlot[] {
+export function generateSlots(
+  settings: ClinicSettings,
+  date?: string,
+  location?: string
+): ClinicSlot[] {
   const step = getSlotStep(settings);
   const map = new Map<string, ClinicSlot>();
   if (step <= 0) return [];
 
   if (date) {
     const d = getDaySchedule(settings, date);
-    if (!d.closed) slotsFromSessions(d.sessions, settings.slotDuration, step, map);
+    if (!d.closed) slotsFromSessions(d.sessions, settings.slotDuration, step, map, location);
   } else if (Array.isArray(settings.weekly) && settings.weekly.length === 7) {
     for (const d of settings.weekly) {
-      if (!d.closed) slotsFromSessions(d.sessions, settings.slotDuration, step, map);
+      if (!d.closed) slotsFromSessions(d.sessions, settings.slotDuration, step, map, location);
     }
   } else {
-    slotsFromSessions(settings.sessions, settings.slotDuration, step, map);
+    slotsFromSessions(settings.sessions, settings.slotDuration, step, map, location);
   }
 
   return Array.from(map.values()).sort(
@@ -211,7 +264,8 @@ export function getSlotLocation(
 function normalizeSessions(
   rawSessions: unknown,
   slotDuration: number,
-  label: string
+  label: string,
+  locations: string[]
 ): { sessions?: SessionWindow[]; error?: string } {
   if (!Array.isArray(rawSessions)) return { error: `${label}: timings are missing.` };
   if (rawSessions.length > MAX_SESSIONS) {
@@ -233,10 +287,20 @@ function normalizeSessions(
         error: `${label} ${s.start} - ${s.end} is shorter than one ${slotDuration}-minute appointment.`,
       };
     }
-    const location =
-      typeof s.location === 'string' && s.location.trim()
-        ? s.location.trim().slice(0, MAX_LOCATION_LENGTH)
-        : DEFAULT_LOCATION;
+    const rawLocation =
+      typeof s.location === 'string' ? s.location.trim().slice(0, MAX_LOCATION_LENGTH) : '';
+    let location: string;
+    if (!rawLocation) {
+      location = locations[0];
+    } else {
+      const match = locations.find((l) => sameLocation(l, rawLocation));
+      if (!match) {
+        return {
+          error: `${label} ${s.start} - ${s.end}: choose a location from the added locations.`,
+        };
+      }
+      location = match;
+    }
     sessions.push({ start: s.start, end: s.end, location });
   }
 
@@ -285,6 +349,30 @@ export function normalizeClinicSettings(
     return { error: 'Add the weekly timings (at least one open day with one session).' };
   }
 
+  // Locations: the doctor's list. Older payloads without a list use the locations of the timings.
+  let locations: string[] = [];
+  if (Array.isArray(raw.locations)) {
+    for (const item of raw.locations) {
+      if (typeof item !== 'string') continue;
+      const v = item.trim().slice(0, MAX_LOCATION_LENGTH);
+      if (v && !locations.some((x) => sameLocation(x, v))) locations.push(v);
+    }
+    if (locations.length === 0) return { error: 'Add at least one clinic location.' };
+    if (locations.length > MAX_LOCATIONS) {
+      return { error: `You can add at most ${MAX_LOCATIONS} locations.` };
+    }
+  } else {
+    for (const entry of rawWeekly) {
+      const list = Array.isArray(entry?.sessions) ? (entry.sessions as Array<Record<string, unknown>>) : [];
+      for (const x of list) {
+        const v = typeof x?.location === 'string' ? x.location.trim().slice(0, MAX_LOCATION_LENGTH) : '';
+        if (v && !locations.some((l) => sameLocation(l, v))) locations.push(v);
+      }
+    }
+    if (locations.length === 0) locations = [DEFAULT_LOCATION];
+    locations = locations.slice(0, MAX_LOCATIONS);
+  }
+
   const weekly: WeeklySchedule = [];
   for (let i = 0; i < 7; i++) {
     const entry = rawWeekly[i] || {};
@@ -294,7 +382,7 @@ export function normalizeClinicSettings(
       weekly.push({ closed: true, sessions: [] });
       continue;
     }
-    const result = normalizeSessions(rawSessions, slotDuration, label);
+    const result = normalizeSessions(rawSessions, slotDuration, label, locations);
     if (!result.sessions) return { error: result.error };
     weekly.push({ closed: false, sessions: result.sessions });
   }
@@ -309,6 +397,7 @@ export function normalizeClinicSettings(
     bufferTime,
     sessions: firstOpen.sessions.map((s) => ({ ...s })),
     weekly,
+    locations,
   };
   if (generateSlots(settings).length === 0) {
     return { error: 'These settings produce no bookable slots.' };

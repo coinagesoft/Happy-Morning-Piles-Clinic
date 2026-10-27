@@ -14,6 +14,8 @@ interface ClinicSettingsRow extends RowDataPacket {
   slot_duration: number;
   buffer_time: number;
   sessions: string | null;
+  weekly: string | null;
+  locations: string | null;
   updated_at: string;
 }
 
@@ -24,6 +26,26 @@ const clinicSettingsGlobal = globalThis as unknown as {
 };
 
 const SETTINGS_CACHE_TTL_MS = 10_000;
+
+/**
+ * Makes sure the `weekly` and `locations` columns exist. This runs on its own (once per
+ * server process) because the main schema setup is skipped after a hot reload, which left
+ * older databases without the new columns and made saving fail.
+ */
+async function ensureSettingsColumns(): Promise<void> {
+  const g = globalThis as unknown as { __clinicSettingsColumnsReady?: boolean };
+  if (g.__clinicSettingsColumnsReady) return;
+  await ensureDatabaseSchema();
+  const pool = getPool();
+  for (const column of ['weekly LONGTEXT NULL', 'locations TEXT NULL']) {
+    try {
+      await pool.execute(`ALTER TABLE clinic_settings ADD COLUMN ${column}`);
+    } catch {
+      // Column already exists
+    }
+  }
+  g.__clinicSettingsColumnsReady = true;
+}
 
 function cloneDefaults(): ClinicSettings {
   return JSON.parse(JSON.stringify(DEFAULT_CLINIC_SETTINGS)) as ClinicSettings;
@@ -36,10 +58,10 @@ export async function getClinicSettings(forceFresh = false): Promise<ClinicSetti
   }
 
   try {
-    await ensureDatabaseSchema();
+    await ensureSettingsColumns();
     const pool = getPool();
     const [rows] = await pool.execute<ClinicSettingsRow[]>(
-      `SELECT slot_duration, buffer_time, sessions, updated_at FROM clinic_settings WHERE id = 1`
+      `SELECT slot_duration, buffer_time, sessions, weekly, locations, updated_at FROM clinic_settings WHERE id = 1`
     );
 
     let settings = cloneDefaults();
@@ -51,10 +73,26 @@ export async function getClinicSettings(forceFresh = false): Promise<ClinicSetti
       } catch {
         sessions = undefined;
       }
+      // The day-wise schedule and the locations list are stored as JSON.
+      // Rows saved before they existed fall back to the legacy `sessions` list.
+      let weekly: unknown = undefined;
+      try {
+        weekly = row.weekly ? JSON.parse(row.weekly) : undefined;
+      } catch {
+        weekly = undefined;
+      }
+      let locations: unknown = undefined;
+      try {
+        locations = row.locations ? JSON.parse(row.locations) : undefined;
+      } catch {
+        locations = undefined;
+      }
       const parsed = normalizeClinicSettings({
         slotDuration: row.slot_duration,
         bufferTime: row.buffer_time,
         sessions,
+        weekly,
+        locations,
       });
       if (parsed.settings) settings = parsed.settings;
     }
@@ -68,20 +106,24 @@ export async function getClinicSettings(forceFresh = false): Promise<ClinicSetti
 }
 
 export async function saveClinicSettings(settings: ClinicSettings): Promise<ClinicSettings> {
-  await ensureDatabaseSchema();
+  await ensureSettingsColumns();
   const pool = getPool();
   await pool.execute(
-    `INSERT INTO clinic_settings (id, slot_duration, buffer_time, sessions, updated_at)
-     VALUES (1, ?, ?, ?, ?)
+    `INSERT INTO clinic_settings (id, slot_duration, buffer_time, sessions, weekly, locations, updated_at)
+     VALUES (1, ?, ?, ?, ?, ?, ?)
      ON DUPLICATE KEY UPDATE
        slot_duration = VALUES(slot_duration),
        buffer_time = VALUES(buffer_time),
        sessions = VALUES(sessions),
+       weekly = VALUES(weekly),
+       locations = VALUES(locations),
        updated_at = VALUES(updated_at)`,
     [
       settings.slotDuration,
       settings.bufferTime,
       JSON.stringify(settings.sessions),
+      JSON.stringify(settings.weekly),
+      JSON.stringify(settings.locations),
       new Date().toISOString(),
     ]
   );

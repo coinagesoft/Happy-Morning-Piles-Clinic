@@ -909,3 +909,87 @@
   color: #6b7094;
 }
 .bk-slot.is-selected .bk-slot-loc { color: rgba(255, 255, 255, 0.85); }
+/* ---------- Step 1: choose a location (slim row at the top of the date/time panel) ---------- */
+.bk-loc {
+  grid-column: 1 / -1;
+  margin-bottom: 22px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid #dde1f8;
+}
+
+.bk-loc.invalid {
+  border-bottom-color: var(--error);
+}
+
+.bk-loc .bk-col-head {
+  min-height: 0;
+  margin-bottom: 12px;
+}
+
+.bk-loc-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding-left: 38px;
+}
+
+.bk-loc-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 16px;
+  border-radius: 999px;
+  border: 1.5px solid var(--line);
+  background: #ffffff;
+  color: var(--primary-dark);
+  font-family: var(--sans);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.bk-loc-option svg {
+  flex: none;
+  color: var(--primary);
+}
+
+.bk-loc-option:hover:not(:disabled) {
+  border-color: var(--primary);
+}
+
+.bk-loc-option:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.bk-loc-option.is-selected {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #ffffff;
+}
+
+.bk-loc-option.is-selected svg {
+  color: #ffffff;
+}
+
+.bk-loc-note {
+  padding-left: 38px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.bk-loc .bk-col-error {
+  margin-left: 38px;
+}
+
+@media (max-width: 720px) {
+  .bk-loc-options,
+  .bk-loc-note {
+    padding-left: 0;
+  }
+  .bk-loc .bk-col-error {
+    margin-left: 0;
+  }
+}

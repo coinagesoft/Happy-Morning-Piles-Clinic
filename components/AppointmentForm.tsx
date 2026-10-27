@@ -8,6 +8,7 @@ import { formatSlotLabel } from '@/lib/slots';
 import './booking.css';
 
 interface FormData {
+  location: string;
   fullName: string;
   phone: string;
   email: string;
@@ -116,6 +117,7 @@ function loadRazorpayCheckoutScript(): Promise<boolean> {
 export default function AppointmentForm() {
   const clinic = useClinicSettings();
   const [formData, setFormData] = useState<FormData>({
+    location: '',
     fullName: '',
     phone: '',
     email: '',
@@ -167,6 +169,7 @@ export default function AppointmentForm() {
   const [googleMessage, setGoogleMessage] = useState<string | null>(null);
 
   const successBoxRef = useRef<HTMLDivElement>(null);
+  const locationSectionRef = useRef<HTMLDivElement>(null);
   const calendarSectionRef = useRef<HTMLDivElement>(null);
   const slotSectionRef = useRef<HTMLDivElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
@@ -262,40 +265,53 @@ export default function AppointmentForm() {
       .catch((err) => console.error('Error fetching Google status:', err));
   };
 
-  // Initialize date logic safely on client side (only allow booking from tomorrow onwards)
+  const toIsoDate = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+  // Only allow booking from tomorrow onwards
   useEffect(() => {
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
-    const tomorrowStr = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(
-      2,
-      '0'
-    )}-${String(tomorrow.getDate()).padStart(2, '0')}`;
-    setTomorrowIso(tomorrowStr);
+    setTomorrowIso(toIsoDate(tomorrow));
+  }, []);
 
-    // Initial date: start from tomorrow; if tomorrow is Sunday, advance to Monday
-    const initial = new Date(tomorrow);
-    for (let i = 0; i < 7; i++) {
-      const probe = `${initial.getFullYear()}-${String(initial.getMonth() + 1).padStart(2, '0')}-${String(
-        initial.getDate()
-      ).padStart(2, '0')}`;
-      if (!clinic.isClosedOn(probe)) break;
-      initial.setDate(initial.getDate() + 1);
+  // First date from tomorrow on that the doctor sits at the chosen location
+  const findFirstOpenDate = (location: string): string => {
+    const probe = new Date();
+    probe.setDate(probe.getDate() + 1);
+    const leaveDates = new Set(doctorBlockedDates.map((b) => b.date));
+    for (let i = 0; i < 90; i++) {
+      const iso = toIsoDate(probe);
+      if (!clinic.isClosedOn(iso, location) && !leaveDates.has(iso)) return iso;
+      probe.setDate(probe.getDate() + 1);
     }
-    const initialIso = `${initial.getFullYear()}-${String(initial.getMonth() + 1).padStart(
-      2,
-      '0'
-    )}-${String(initial.getDate()).padStart(2, '0')}`;
+    return '';
+  };
 
+  // Patient picks a location first; dates and slots then follow that location only
+  const handleLocationSelect = (location: string) => {
+    if (location === formData.location) return;
     setFormData((prev) => ({
       ...prev,
-      date: initialIso,
+      location,
+      date: findFirstOpenDate(location),
+      time: '',
     }));
-  }, []);
+    setErrors((prev) => ({ ...prev, location: '', date: '', time: '' }));
+  };
+
+  // With a single location there is nothing to choose, so it is selected automatically
+  useEffect(() => {
+    if (clinic.isLoaded && !formData.location && clinic.bookableLocations.length === 1) {
+      handleLocationSelect(clinic.bookableLocations[0]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clinic.isLoaded, clinic.bookableLocations.join('|'), formData.location]);
 
   // Fetch booked slots whenever the selected date changes (instant 0ms from cache)
   const fetchBookedSlots = React.useCallback((dateString: string) => {
     if (!dateString) return;
-    if (clinic.isClosedOn(dateString)) {
+    if (!formData.location || clinic.isClosedOn(dateString, formData.location)) {
       setServerBookedSlots([]);
       setDoctorBlockedSlots([]);
       setIsDoctorDateBlocked(false);
@@ -333,7 +349,7 @@ export default function AppointmentForm() {
       .catch((err) => console.error('Failed to load booked slots:', err))
       .finally(() => setIsLoadingSlots(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clinic.settings]);
+  }, [clinic.settings, formData.location]);
 
   useEffect(() => {
     if (formData.date) {
@@ -349,6 +365,9 @@ export default function AppointmentForm() {
     const trimmed = value.trim();
 
     switch (name) {
+      case 'location':
+        return trimmed ? '' : 'Please choose a clinic location.';
+
       case 'fullName':
         if (!trimmed) return 'Please enter your full name.';
         if (trimmed.length < 3) return 'At least 3 characters.';
@@ -387,9 +406,9 @@ export default function AppointmentForm() {
           return 'Appointments must be booked from tomorrow onwards. Same-day or past bookings are not allowed.';
         }
         const d = new Date(`${trimmed}T00:00:00`);
-        if (clinic.isClosedOn(trimmed)) {
+        if (formData.location && clinic.isClosedOn(trimmed, formData.location)) {
           const dayName = d.toLocaleDateString('en-IN', { weekday: 'long' });
-          return `The doctor does not take appointments on ${dayName}s. Please choose another day.`;
+          return `The doctor does not take appointments at ${formData.location} on ${dayName}s. Please choose another day.`;
         }
         return '';
       }
@@ -445,13 +464,14 @@ export default function AppointmentForm() {
   };
 
   // Day-wise timings: only the slots of the chosen weekday, each with its visiting location
-  const SLOTS = clinic.slotsForDate(formData.date);
-  const isSunday = formData.date ? clinic.isClosedOn(formData.date) : false; // "closed day" (Sunday by default)
+  const SLOTS = clinic.slotsForDate(formData.date, formData.location);
+  // "closed day": no timings at the chosen location on that weekday
+  const isSunday = formData.date && formData.location ? clinic.isClosedOn(formData.date, formData.location) : false;
   const closedDayName = formData.date
     ? new Date(`${formData.date}T00:00:00`).toLocaleDateString('en-IN', { weekday: 'long' })
     : '';
   const selectedSlotLabel = SLOTS.find((s) => s.value === formData.time)?.label || '';
-  const selectedLocation = formData.time ? clinic.locationFor(formData.date, formData.time) : undefined;
+  const selectedLocation = formData.location || undefined;
   const dayLocations = Array.from(new Set(SLOTS.map((s) => s.location).filter(Boolean))) as string[];
   const hasMultipleLocations = dayLocations.length > 1;
 
@@ -508,7 +528,9 @@ export default function AppointmentForm() {
     if (firstInvalidKey) {
       const errorMsg = newErrors[firstInvalidKey] || 'Please check and complete all required fields.';
       toast.warning(errorMsg, 'Required Information');
-      if (firstInvalidKey === 'time') {
+      if (firstInvalidKey === 'location') {
+        locationSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      } else if (firstInvalidKey === 'time') {
         slotSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       } else if (firstInvalidKey === 'date') {
         calendarSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -522,7 +544,9 @@ export default function AppointmentForm() {
     // Verify real-time slot availability before opening Razorpay
     setIsCheckingSlot(true);
     try {
-      const res = await fetch(`/api/appointments?date=${formData.date}`);
+      const res = await fetch(
+        `/api/appointments?date=${formData.date}&location=${encodeURIComponent(formData.location)}`
+      );
       const data = await res.json();
       if (data.isDoctorBlocked) {
         setIsDoctorDateBlocked(true);
@@ -626,6 +650,7 @@ export default function AppointmentForm() {
 
       // Reset form fields
       setFormData({
+        location: formData.location,
         fullName: '',
         phone: '',
         email: '',
@@ -688,6 +713,7 @@ export default function AppointmentForm() {
         reason: formData.reason,
         appointment_date: formData.date,
         appointment_time: formData.time,
+        location: formData.location,
       },
       theme: {
         color: '#565ACF',
@@ -734,12 +760,14 @@ export default function AppointmentForm() {
   const dateIsBookable =
     !!formData.date && !isSunday && !isDoctorDateBlocked && (!tomorrowIso || formData.date >= tomorrowIso);
 
-  const slotNote = !formData.date
+  const slotNote = !formData.location
+    ? 'Choose a location first to see available times.'
+    : !formData.date
     ? 'Select a date to see available times.'
     : tomorrowIso && formData.date < tomorrowIso
     ? 'Same-day and past dates cannot be booked online.'
     : isSunday
-    ? `The doctor does not take appointments on ${closedDayName}. Please choose another date.`
+    ? `The doctor does not take appointments at ${formData.location} on ${closedDayName}. Please choose another date.`
     : isDoctorDateBlocked
     ? `Doctor is unavailable on ${shortDate || formData.date} (${doctorBlockReason || 'on leave'}).`
     : isLoadingSlots
@@ -792,7 +820,7 @@ export default function AppointmentForm() {
         <div className="bk-top">
           <div>
             <h2>Schedule your consultation</h2>
-            <p>Pick a date and time first, then tell us a little about you.</p>
+            <p>Pick a location, date and time first, then tell us a little about you.</p>
           </div>
           <div className="bk-top-meta">
             <span>
@@ -809,24 +837,85 @@ export default function AppointmentForm() {
         <form id="appointment-form" className="bk-form" noValidate ref={formRef} onSubmit={handlePayAndBookSubmit}>
           <div className="bk-cols">
             <div className="bk-panel bk-panel-when">
-            {/* 1. DATE */}
-            <section className={`bk-col bk-col-date ${errors.date ? 'invalid' : ''}`} ref={calendarSectionRef}>
+            {/* 1. LOCATION */}
+            <section className={`bk-loc ${errors.location ? 'invalid' : ''}`} ref={locationSectionRef}>
               <header className="bk-col-head">
                 <span className="bk-step">1</span>
                 <div>
-                  <h2>Choose a date</h2>
-                  <p>Doctor's visiting days only, from tomorrow onwards</p>
+                  <h2>Choose a location</h2>
+                  <p>Where would you like to meet the doctor?</p>
                 </div>
               </header>
 
-              <CalendarPicker
-                selectedDate={formData.date}
-                onSelectDate={handleCalendarDateSelect}
-                minDate={tomorrowIso}
-                disabled={isBusy}
-                doctorBlockedDates={doctorBlockedDates}
-                closedWeekdays={clinic.closedWeekdays}
-              />
+              {clinic.bookableLocations.length === 0 ? (
+                <p className="bk-loc-note">Loading locations...</p>
+              ) : (
+                <div className="bk-loc-options" role="radiogroup" aria-label="Clinic location">
+                  {clinic.bookableLocations.map((loc) => {
+                    const closed = clinic.closedWeekdaysFor(loc);
+                    const openDays = [1, 2, 3, 4, 5, 6, 0]
+                      .filter((d) => !closed.includes(d))
+                      .map((d) => ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d])
+                      .join(', ');
+                    const isSelected = formData.location === loc;
+                    return (
+                      <button
+                        key={loc}
+                        type="button"
+                        role="radio"
+                        aria-checked={isSelected}
+                        title={`${loc}: ${openDays}`}
+                        className={`bk-loc-option ${isSelected ? 'is-selected' : ''}`}
+                        disabled={isBusy}
+                        onClick={() => handleLocationSelect(loc)}
+                      >
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <path d="M21 10c0 7-9 13-9 13S3 17 3 10a9 9 0 0 1 18 0z" />
+                          <circle cx="12" cy="10" r="3" />
+                        </svg>
+                        <span>{loc}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              <input type="hidden" name="location" value={formData.location} />
+
+              {errors.location && (
+                <p className="bk-col-error" id="location-error">
+                  {errors.location}
+                </p>
+              )}
+            </section>
+
+            {/* 1. DATE */}
+            <section className={`bk-col bk-col-date ${errors.date ? 'invalid' : ''}`} ref={calendarSectionRef}>
+              <header className="bk-col-head">
+                <span className="bk-step">2</span>
+                <div>
+                  <h2>Choose a date</h2>
+                  <p>{formData.location ? `Days the doctor sits at ${formData.location}` : "Doctor's visiting days, from tomorrow onwards"}</p>
+                </div>
+              </header>
+
+              {formData.location ? (
+                <CalendarPicker
+                  selectedDate={formData.date}
+                  onSelectDate={handleCalendarDateSelect}
+                  minDate={tomorrowIso}
+                  disabled={isBusy}
+                  doctorBlockedDates={doctorBlockedDates}
+                  closedWeekdays={clinic.closedWeekdaysFor(formData.location)}
+                />
+              ) : (
+                <div className="bk-slots-empty">
+                  <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21 10c0 7-9 13-9 13S3 17 3 10a9 9 0 0 1 18 0z" />
+                    <circle cx="12" cy="10" r="3" />
+                  </svg>
+                  <span>Choose a location to see its available dates</span>
+                </div>
+              )}
               <input type="hidden" name="date" value={formData.date} />
 
               {errors.date && (
@@ -839,7 +928,7 @@ export default function AppointmentForm() {
             {/* 2. TIME */}
             <section className={`bk-col bk-col-time ${errors.time ? 'invalid' : ''}`} ref={slotSectionRef}>
               <header className="bk-col-head">
-                <span className="bk-step">2</span>
+                <span className="bk-step">3</span>
                 <div>
                   <h2>Choose a time</h2>
                   <p id="slot-date-note">{slotNote}</p>
@@ -849,17 +938,6 @@ export default function AppointmentForm() {
 
               {dateIsBookable ? (
                 <>
-                  {dayLocations.length > 0 && (
-                    <p className="bk-day-location" id="slot-location">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                        <path d="M21 10c0 7-9 13-9 13S3 17 3 10a9 9 0 0 1 18 0z" />
-                        <circle cx="12" cy="10" r="3" />
-                      </svg>
-                      <span>
-                        Doctor will be at <strong>{dayLocations.join(' & ')}</strong>
-                      </span>
-                    </p>
-                  )}
                   <div className="bk-slots" id="slot-grid">
                     {SLOTS.map((slot) => {
                       const isDoctorBlocked = doctorBlockedSlots.includes(slot.value);
@@ -909,7 +987,13 @@ export default function AppointmentForm() {
                     <line x1="8" y1="2" x2="8" y2="6" />
                     <line x1="3" y1="10" x2="21" y2="10" />
                   </svg>
-                  <span>{isDoctorDateBlocked ? 'Doctor unavailable on this date' : 'Pick an available date to see time slots'}</span>
+                  <span>
+                    {!formData.location
+                      ? 'Choose a location to see its time slots'
+                      : isDoctorDateBlocked
+                      ? 'Doctor unavailable on this date'
+                      : 'Pick an available date to see time slots'}
+                  </span>
                 </div>
               )}
 
@@ -925,7 +1009,7 @@ export default function AppointmentForm() {
             {/* 3. DETAILS */}
             <section className="bk-panel bk-panel-details bk-col-details">
               <header className="bk-col-head">
-                <span className="bk-step">3</span>
+                <span className="bk-step">4</span>
                 <div>
                   <h2>Your details</h2>
                   <p>All fields required except the message</p>

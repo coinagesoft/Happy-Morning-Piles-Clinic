@@ -165,6 +165,11 @@ export async function ensureDatabaseSchema(): Promise<void> {
     // Column might already exist
   }
   try {
+    await pool.execute(`ALTER TABLE clinic_settings ADD COLUMN locations TEXT NULL`);
+  } catch {
+    // Column might already exist
+  }
+  try {
     await pool.execute(`ALTER TABLE appointments ADD COLUMN location VARCHAR(255) NULL`);
   } catch {
     // Column might already exist

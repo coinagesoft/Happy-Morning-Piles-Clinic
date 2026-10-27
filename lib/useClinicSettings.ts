@@ -9,6 +9,8 @@ import {
   getSlotStep,
   getClosedWeekdays,
   getSlotLocation,
+  getBookableLocations,
+  getLocations,
   isClinicClosedOn,
 } from './slots';
 
@@ -53,10 +55,16 @@ export function useClinicSettings(): {
   step: number;
   /** Weekdays (0 = Sunday) with no timings. */
   closedWeekdays: number[];
-  /** Slots of one specific date's weekday (empty when closed). */
-  slotsForDate: (date: string) => ClinicSlot[];
-  /** True when the doctor has no timings on that date's weekday (e.g. Sunday). */
-  isClosedOn: (date: string) => boolean;
+  /** Every location the doctor added. */
+  locations: string[];
+  /** Locations with at least one open weekday (what patients can choose). */
+  bookableLocations: string[];
+  /** Weekdays (0 = Sunday) on which the doctor does not sit at a given location. */
+  closedWeekdaysFor: (location: string) => number[];
+  /** Slots of one specific date's weekday (empty when closed), optionally for one location. */
+  slotsForDate: (date: string, location?: string) => ClinicSlot[];
+  /** True when the doctor has no timings on that date's weekday (optionally at one location). */
+  isClosedOn: (date: string, location?: string) => boolean;
   /** Location of the session containing `time` on `date`. */
   locationFor: (date: string, time: string) => string | undefined;
   isLoaded: boolean;
@@ -83,8 +91,13 @@ export function useClinicSettings(): {
     slotValues,
     step: getSlotStep(settings),
     closedWeekdays: getClosedWeekdays(settings),
-    slotsForDate: (date: string) => (date ? generateSlots(settings, date) : []),
-    isClosedOn: (date: string) => (date ? isClinicClosedOn(settings, date) : false),
+    locations: getLocations(settings),
+    bookableLocations: getBookableLocations(settings),
+    closedWeekdaysFor: (location: string) => getClosedWeekdays(settings, location),
+    slotsForDate: (date: string, location?: string) =>
+      date ? generateSlots(settings, date, location || undefined) : [],
+    isClosedOn: (date: string, location?: string) =>
+      date ? isClinicClosedOn(settings, date, location || undefined) : false,
     locationFor: (date: string, time: string) =>
       date && time ? getSlotLocation(settings, date, time) : undefined,
     isLoaded: loaded,

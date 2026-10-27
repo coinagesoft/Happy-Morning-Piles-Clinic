@@ -4,31 +4,24 @@ import React, { useEffect, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { TREATMENTS } from '@/lib/treatmentsData';
-import { NEWS_ARTICLES } from '@/lib/newsData';
 import { CLINIC } from '@/lib/clinicInfo';
 import '@/components/treatment-indepth.css';
 
 export default function TreatmentsPage() {
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
-  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const filteredTreatments =
     selectedCategory === 'all'
       ? TREATMENTS
       : TREATMENTS.filter((t) => t.category === selectedCategory);
 
-  // Open the in-depth guide when the page is opened with a link like /treatments#fistula
+  // Scroll to a treatment card when the page is opened with a link like /treatments#fistula
   useEffect(() => {
     const id = window.location.hash.replace('#', '');
     if (id && TREATMENTS.some((t) => t.id === id)) {
-      setExpandedId(id);
       setTimeout(() => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' }), 100);
     }
   }, []);
-
-  const toggleExpand = (id: string) => {
-    setExpandedId((prev) => (prev === id ? null : id));
-  };
 
   return (
     <>
@@ -186,8 +179,6 @@ export default function TreatmentsPage() {
 
           <div className="treatment-cards-list">
             {filteredTreatments.map((treatment) => {
-              const isExpanded = expandedId === treatment.id;
-
               return (
                 <article key={treatment.id} id={treatment.id} className="treatment-detail-card">
                   <div className="treatment-card-header">
@@ -222,125 +213,14 @@ export default function TreatmentsPage() {
                     </div>
                   </div>
 
-                  {isExpanded && (
-                    <div className="treatment-expanded-drawer indepth-drawer">
-                      <figure className="indepth-figure">
-                        <Image
-                          src={treatment.image.src}
-                          alt={treatment.image.alt}
-                          width={1600}
-                          height={900}
-                          sizes="(max-width: 900px) 100vw, 900px"
-                        />
-                        <figcaption>{treatment.image.caption}</figcaption>
-                      </figure>
-
-                      <div className="indepth-block">
-                        <h5>Understanding {treatment.name.split('(')[0].trim()}</h5>
-                        {treatment.overview.map((para) => (
-                          <p key={para}>{para}</p>
-                        ))}
-                      </div>
-
-                      {treatment.types && (
-                        <div className="indepth-types">
-                          <h5>Types and stages</h5>
-                          <div className="indepth-types-grid">
-                            {treatment.types.map((t) => (
-                              <div key={t.title} className="indepth-type-card">
-                                <strong>{t.title}</strong>
-                                <p>{t.text}</p>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      <div className="indepth-two-col">
-                        <div className="indepth-col">
-                          <h5>Common causes</h5>
-                          <ul>
-                            {treatment.causes.map((c) => (
-                              <li key={c}>{c}</li>
-                            ))}
-                          </ul>
-                        </div>
-                        <div className="indepth-col">
-                          <h5>Simple care at home</h5>
-                          <ul>
-                            {treatment.selfCare.map((c) => (
-                              <li key={c}>{c}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      </div>
-
-                      <div className="indepth-alert">
-                        <h5>When to see a doctor</h5>
-                        <ul>
-                          {treatment.whenToSeeDoctor.map((w) => (
-                            <li key={w}>{w}</li>
-                          ))}
-                        </ul>
-                      </div>
-
-                      <div className="indepth-steps">
-                        <h5>What to expect at the clinic</h5>
-                        <ol>
-                          {treatment.whatToExpect.map((s) => (
-                            <li key={s}>{s}</li>
-                          ))}
-                        </ol>
-                      </div>
-
-                      <div className="expanded-highlights">
-                        <h5>Treatment highlights:</h5>
-                        <ul>
-                          {treatment.highlights.map((h) => (
-                            <li key={h}>
-                              <span className="check-icon">&#x2713;</span>
-                              {h}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-
-                      <div className="indepth-faqs">
-                        <h5>Quick questions</h5>
-                        {treatment.faqs.map((f) => (
-                          <details key={f.q} className="indepth-faq-item">
-                            <summary>{f.q}</summary>
-                            <p>{f.a}</p>
-                          </details>
-                        ))}
-                      </div>
-
-                      <div className="indepth-related">
-                        <h5>Read more</h5>
-                        <div className="indepth-related-links">
-                          {treatment.relatedGuides
-                            .map((slug) => NEWS_ARTICLES.find((a) => a.slug === slug))
-                            .filter((a): a is (typeof NEWS_ARTICLES)[number] => Boolean(a))
-                            .map((a) => (
-                              <Link key={a.slug} href={`/news/${a.slug}`}>
-                                {a.title}
-                              </Link>
-                            ))}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
                   <div className="treatment-card-footer">
-                    <button
-                      type="button"
+                    <Link
+                      href={`/treatments/${treatment.id}`}
                       className="btn-toggle-treatment"
-                      onClick={() => toggleExpand(treatment.id)}
-                      aria-expanded={isExpanded}
                     >
-                      <span>{isExpanded ? 'Hide In-Depth Guide' : 'Read In-Depth Guide'}</span>
-                      <span className={`toggle-chevron ${isExpanded ? 'rotated' : ''}`}>&#x25BC;</span>
-                    </button>
+                      <span>Read In-Depth Guide</span>
+                      <span aria-hidden="true">&rarr;</span>
+                    </Link>
 
                     <div className="footer-links-group">
                       <Link href="/appointment" className="btn-treatment-direct-book">
