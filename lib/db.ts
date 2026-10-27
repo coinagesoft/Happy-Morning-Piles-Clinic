@@ -242,6 +242,17 @@ export async function ensureDatabaseSchema(): Promise<void> {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
   `);
 
+  await pool.execute(`
+    CREATE TABLE IF NOT EXISTS medicine_categories (
+      id VARCHAR(64) PRIMARY KEY,
+      name VARCHAR(150) NOT NULL UNIQUE,
+      description TEXT,
+      created_at VARCHAR(64) NOT NULL,
+      updated_at VARCHAR(64) NOT NULL,
+      INDEX idx_category_name (name)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  `);
+
   global.__schemaInitialized = true;
   })();
 

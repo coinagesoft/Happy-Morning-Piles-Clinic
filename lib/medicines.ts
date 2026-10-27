@@ -133,6 +133,27 @@ export async function createMedicine(input: {
   );
 
   const created = await getMedicineById(id);
+
+  // Ensure category is registered in medicine_categories
+  if (input.category && input.category.trim()) {
+    try {
+      const catName = input.category.trim();
+      const [catCheck] = await pool.execute<RowDataPacket[]>(
+        `SELECT id FROM medicine_categories WHERE LOWER(name) = LOWER(?) LIMIT 1`,
+        [catName]
+      );
+      if (catCheck.length === 0) {
+        await pool.execute(
+          `INSERT IGNORE INTO medicine_categories (id, name, description, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?)`,
+          [crypto.randomUUID(), catName, '', now, now]
+        );
+      }
+    } catch {
+      // ignore
+    }
+  }
+
   return created!;
 }
 
@@ -251,6 +272,25 @@ export async function bulkImportMedicines(
         [id, rawName, potency, form, category, notes, now, now]
       );
       added++;
+    }
+
+    // Ensure category exists in medicine_categories
+    if (category) {
+      try {
+        const [catCheck] = await pool.execute<RowDataPacket[]>(
+          `SELECT id FROM medicine_categories WHERE LOWER(name) = LOWER(?) LIMIT 1`,
+          [category]
+        );
+        if (catCheck.length === 0) {
+          await pool.execute(
+            `INSERT IGNORE INTO medicine_categories (id, name, description, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?)`,
+            [crypto.randomUUID(), category, '', now, now]
+          );
+        }
+      } catch {
+        // ignore
+      }
     }
   }
 
