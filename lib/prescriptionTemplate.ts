@@ -26,7 +26,9 @@ export interface Prescription {
   diagnosis: string;
   medicines: PrescriptionMedicine[];
   advice: string;
-  followUp: string; // free text or date
+  followUp: string; // text printed on the prescription, e.g. "After 2 weeks (Thu, 5 Nov 2026)"
+  /** YYYY-MM-DD. When set, the patient gets a WhatsApp + email reminder for this day. */
+  followUpDate?: string;
   emailedAt?: string;
   createdAt: string;
   updatedAt: string;

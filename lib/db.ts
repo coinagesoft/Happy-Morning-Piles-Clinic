@@ -207,6 +207,18 @@ export async function ensureDatabaseSchema(): Promise<void> {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
   `);
 
+  // Safe migration: follow-up date (drives the follow-up reminders)
+  try {
+    await pool.execute(`ALTER TABLE prescriptions ADD COLUMN follow_up_date VARCHAR(16) NULL`);
+  } catch {
+    // Column might already exist
+  }
+  try {
+    await pool.execute(`ALTER TABLE prescriptions ADD INDEX idx_rx_follow_up_date (follow_up_date)`);
+  } catch {
+    // Index might already exist
+  }
+
   await pool.execute(`
     CREATE TABLE IF NOT EXISTS prescription_letterhead (
       id INT PRIMARY KEY DEFAULT 1,

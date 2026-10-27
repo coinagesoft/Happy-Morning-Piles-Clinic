@@ -88,17 +88,34 @@ export async function POST(request: NextRequest) {
       new Date()
     );
 
+    const rxDate = /^\d{4}-\d{2}-\d{2}$/.test(body.date || '') ? String(body.date) : todayIso;
+    const rawFollowUpDate = String(body.followUpDate || '').trim();
+    let followUpDate = '';
+    if (rawFollowUpDate) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(rawFollowUpDate) || Number.isNaN(Date.parse(rawFollowUpDate))) {
+        return NextResponse.json({ error: 'Follow-up date is not valid.' }, { status: 400 });
+      }
+      if (rawFollowUpDate <= rxDate) {
+        return NextResponse.json(
+          { error: 'Follow-up date must be after the prescription date.' },
+          { status: 400 }
+        );
+      }
+      followUpDate = rawFollowUpDate;
+    }
+
     const prescription = await savePrescription({
       appointmentId,
       patientName: appointment.fullName,
       patientEmail: appointment.email,
       patientPhone: appointment.phone,
       patientAge: appointment.age,
-      date: /^\d{4}-\d{2}-\d{2}$/.test(body.date || '') ? body.date : todayIso,
+      date: rxDate,
       diagnosis: String(body.diagnosis || '').slice(0, 2000),
       medicines,
       advice: String(body.advice || '').slice(0, 4000),
       followUp: String(body.followUp || '').slice(0, 255),
+      followUpDate,
     });
 
     return NextResponse.json({ prescription });
