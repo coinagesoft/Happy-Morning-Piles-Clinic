@@ -331,6 +331,39 @@ export async function isSlotBookedExcluding(
   return isFastSlotBookedExcluding(date, time, excludeId);
 }
 
+export async function ensureGoogleTokensLoaded(): Promise<Credentials | null> {
+  if (inMemoryTokens?.refresh_token || inMemoryTokens?.access_token) {
+    return inMemoryTokens;
+  }
+  if (process.env.GOOGLE_REFRESH_TOKEN) {
+    const refreshToken = process.env.GOOGLE_REFRESH_TOKEN.trim().replace(/^["']|["']$/g, '');
+    inMemoryTokens = {
+      refresh_token: refreshToken,
+      token_type: 'Bearer',
+    };
+    return inMemoryTokens;
+  }
+  try {
+    await ensureDatabaseSchema();
+    const pool = getPool();
+    const [rows] = await pool.execute<RowDataPacket[]>(
+      `SELECT access_token, refresh_token, token_type, expiry_date FROM google_oauth_tokens WHERE id = 1 LIMIT 1`
+    );
+    if (rows && rows.length > 0 && (rows[0].refresh_token || rows[0].access_token)) {
+      inMemoryTokens = {
+        access_token: rows[0].access_token || undefined,
+        refresh_token: rows[0].refresh_token || undefined,
+        token_type: rows[0].token_type || 'Bearer',
+        expiry_date: rows[0].expiry_date ? Number(rows[0].expiry_date) : undefined,
+      };
+      return inMemoryTokens;
+    }
+  } catch (err) {
+    console.warn('[db] Could not load Google OAuth tokens from MySQL:', err);
+  }
+  return null;
+}
+
 export function getGoogleTokens(): Credentials | null {
   if (process.env.GOOGLE_REFRESH_TOKEN) {
     const refreshToken = process.env.GOOGLE_REFRESH_TOKEN.trim().replace(/^["']|["']$/g, '');

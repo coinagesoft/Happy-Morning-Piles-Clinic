@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import {
   saveAppointment,
   getBookedSlotsForDate,
+  ensureGoogleTokensLoaded,
   Appointment,
 } from '@/lib/storage';
 import {
@@ -31,7 +32,9 @@ import {
 import { formatSlotLabel } from '@/lib/slots';
 import { CLINIC } from '@/lib/clinicInfo';
 import { isMsg91ConfirmationConfigured, sendMsg91WhatsApp } from '@/lib/msg91';
-import { formatDateLong, modeLabel } from '@/lib/reminderEmails';
+import { isMailerConfigured, sendHtmlEmail } from '@/lib/mailer';
+import { formatDateLong, modeLabel, bookingConfirmationEmail } from '@/lib/reminderEmails';
+import { getAppUrl } from '@/lib/appUrl';
 
 export const dynamic = 'force-dynamic';
 
@@ -310,6 +313,7 @@ export async function POST(request: NextRequest) {
     let meetLink = '';
     let googleEventId = '';
     let calendarError = '';
+    await ensureGoogleTokensLoaded();
     const googleConnected = isGoogleConnected();
 
     if (googleConnected) {
@@ -331,6 +335,32 @@ export async function POST(request: NextRequest) {
     }
 
     await saveAppointment(newAppointment);
+
+    // Direct Branded Confirmation Email via SMTP (Nodemailer)
+    if (
+      isMailerConfigured() &&
+      newAppointment.email &&
+      newAppointment.email.includes('@') &&
+      !newAppointment.email.endsWith('@walkin.clinic')
+    ) {
+      try {
+        const origin = request.headers.get('origin') || request.nextUrl.origin;
+        const appUrl = getAppUrl(origin);
+        const mail = bookingConfirmationEmail(
+          {
+            ...newAppointment,
+            consultationType: newAppointment.consultationType ?? 'online',
+          },
+          appUrl
+        );
+        await sendHtmlEmail({
+          to: newAppointment.email,
+          ...mail,
+        });
+      } catch (mailErr) {
+        console.error('Direct booking confirmation email failed:', mailErr);
+      }
+    }
 
     // WhatsApp booking confirmation (MSG91 template "reminder1").
     // Template body: Hello {{1}}, Thank you for booking with {{2}}.

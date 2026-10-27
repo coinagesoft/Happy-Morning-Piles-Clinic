@@ -1,8 +1,10 @@
 import { google } from 'googleapis';
 import { CLINIC } from './clinicInfo';
 import { getCachedSlotDuration } from './clinicSettings';
+import { getAppUrl } from './appUrl';
 import {
   getGoogleTokens,
+  ensureGoogleTokensLoaded,
   saveGoogleTokens,
   getGoogleConfig,
   Appointment,
@@ -17,14 +19,7 @@ const SCOPES = [
 
 export function getOAuth2Client(customRedirectUri?: string) {
   const config = getGoogleConfig();
-  let defaultAppUrl = process.env.NEXT_PUBLIC_APP_URL;
-  if (!defaultAppUrl) {
-    defaultAppUrl = process.env.VERCEL_PROJECT_PRODUCTION_URL
-      ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
-      : process.env.VERCEL_URL
-      ? `https://${process.env.VERCEL_URL}`
-      : 'http://localhost:3000';
-  }
+  const defaultAppUrl = getAppUrl();
   const redirectUri = customRedirectUri || `${defaultAppUrl}/api/auth/google/callback`;
 
   if (!config?.clientId || !config?.clientSecret) {
@@ -108,6 +103,7 @@ export interface CalendarEventResult {
 export async function createCalendarMeeting(
   appointment: Appointment
 ): Promise<CalendarEventResult> {
+  await ensureGoogleTokensLoaded();
   const oauth2Client = getOAuth2Client();
   if (!oauth2Client || !isGoogleConnected()) {
     throw new Error(
@@ -251,6 +247,7 @@ export async function rescheduleCalendarMeeting(
   newConsultationType?: 'online' | 'offline',
   durationMinutes = getCachedSlotDuration()
 ): Promise<{ meetLink?: string; eventId?: string }> {
+  await ensureGoogleTokensLoaded();
   const oauth2Client = getOAuth2Client();
   const isOffline = (newConsultationType || appointment.consultationType) === 'offline';
 
@@ -337,6 +334,7 @@ Payment: ${appointment.paymentMethod || 'Online'} (₹${appointment.amount || 80
  * Returns array of booked time slot strings (e.g. ['09:00', '09:45']).
  */
 export async function getBookedSlotsFromCalendar(date: string): Promise<string[]> {
+  await ensureGoogleTokensLoaded();
   const oauth2Client = getOAuth2Client();
   if (!oauth2Client || !isGoogleConnected()) {
     return [];

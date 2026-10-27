@@ -13,6 +13,7 @@ import {
   type ReminderAppointment,
 } from './reminderEmails';
 import { CLINIC } from './clinicInfo';
+import { getAppUrl } from './appUrl';
 
 /**
  * Appointment reminders (all times Asia/Kolkata):
@@ -355,7 +356,7 @@ export async function runReminderJob(
     if (nowHour >= cfg.followUpHour && nowHour < FOLLOWUP_LAST_HOUR) {
       const days = cfg.followUpDays.map((n) => ({ n, date: addDays(today, n) }));
       const dueFollowUps = await loadFollowUps(days.map((d) => d.date));
-      const appUrl = (process.env.NEXT_PUBLIC_APP_URL || '').replace(/\/$/, '');
+      const appUrl = getAppUrl();
       const bookingUrl = appUrl ? `${appUrl}/appointment` : '';
       // Email only for now. WhatsApp follow-up reminders stay off until FOLLOWUP_WHATSAPP_ENABLED=true.
       const waFollowUpWanted = (process.env.FOLLOWUP_WHATSAPP_ENABLED || '').toLowerCase() === 'true';

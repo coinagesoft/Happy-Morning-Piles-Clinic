@@ -128,8 +128,8 @@ export default function Footer() {
           </div>
         </div>
 
-        <div className="container footer-bottom-meditro">
-          <p>
+        <div className="container footer-bottom-meditro" style={{ textAlign: 'center' }}>
+          <p style={{ margin: '0 auto', textAlign: 'center' }}>
             Copyright &copy; 2026{' '}
             <strong>{CLINIC.name}</strong>. {CLINIC.advisory}
           </p>

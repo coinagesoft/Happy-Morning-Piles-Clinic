@@ -199,3 +199,62 @@ export function doctorDigestEmail(date: string, list: ReminderAppointment[]) {
 
   return { subject, html, text };
 }
+
+/** Instant booking confirmation email sent directly to the patient upon successful scheduling. */
+export function bookingConfirmationEmail(
+  a: ReminderAppointment & { amount?: number; paymentMethod?: string; paymentStatus?: string; location?: string },
+  appUrl: string
+) {
+  const time = formatSlotLabel(a.time);
+  const dateLong = formatDateLong(a.date);
+  const online = a.consultationType !== 'offline';
+
+  const subject = `Booking Confirmed: Consultation on ${dateLong} at ${time} - ${CLINIC.name}`;
+
+  const action = online
+    ? a.meetLink
+      ? `<p style="margin:20px 0"><a href="${esc(a.meetLink)}" style="background:#166534;color:#fff;text-decoration:none;padding:12px 20px;border-radius:8px;display:inline-block;font-weight:bold">Join Google Meet Video Call</a></p>`
+      : '<p style="color:#4b5563">The Google Meet video link will be active at the scheduled time.</p>'
+    : `<div style="background:#f0fdf4;border-left:4px solid #166534;padding:12px 16px;margin:16px 0;border-radius:4px">
+         <strong>Clinic Address:</strong><br/>
+         ${esc(a.location || CLINIC.address.full)}<br/>
+         <span style="font-size:12px;color:#166534">Landmark: ${esc(CLINIC.address.landmark)}</span>
+       </div>`;
+
+  const websiteLink = appUrl
+    ? `<p style="margin:16px 0 0;font-size:13px"><a href="${esc(appUrl)}" style="color:#166534;text-decoration:underline">Visit Clinic Website</a></p>`
+    : '';
+
+  const html = wrap(`
+    <div style="text-align:center;margin-bottom:18px">
+      <span style="display:inline-block;background:#dcfce7;color:#166534;font-size:13px;font-weight:bold;padding:6px 14px;border-radius:999px">
+        Appointment Confirmed
+      </span>
+    </div>
+    <p style="margin:0 0 12px">Dear ${esc(a.fullName)},</p>
+    <p style="margin:0 0 16px">Thank you for booking with <strong>${esc(CLINIC.name)}</strong>. Your appointment has been scheduled successfully.</p>
+    
+    <table style="border-collapse:collapse;width:100%;font-size:14px;margin-bottom:16px">
+      <tr><td style="padding:6px 0;color:#6b7280;width:120px">Doctor</td><td><strong>${esc(CLINIC.doctor.name)}</strong> (${esc(CLINIC.doctor.title)})</td></tr>
+      <tr><td style="padding:6px 0;color:#6b7280">Date</td><td><strong>${esc(dateLong)}</strong></td></tr>
+      <tr><td style="padding:6px 0;color:#6b7280">Time</td><td><strong>${esc(time)}</strong></td></tr>
+      <tr><td style="padding:6px 0;color:#6b7280">Type</td><td>${esc(modeLabel(a))}</td></tr>
+      ${a.amount ? `<tr><td style="padding:6px 0;color:#6b7280">Fee</td><td>₹${esc(a.amount)} (${esc(a.paymentStatus === 'paid' ? 'Paid' : 'Pending')})</td></tr>` : ''}
+    </table>
+
+    ${action}
+
+    <p style="margin:16px 0 0;font-size:13px;color:#4b5563">
+      If you need to reschedule or have any queries, please call us on <strong>${esc(CLINIC.phone.display)}</strong>.
+    </p>
+    ${websiteLink}
+  `);
+
+  const text =
+    `Dear ${a.fullName},\n\nYour appointment with ${CLINIC.name} is confirmed!\n\n` +
+    `Doctor: ${CLINIC.doctor.name}\nDate: ${dateLong}\nTime: ${time}\nConsultation: ${modeLabel(a)}\n` +
+    `${online ? `Meet Link: ${a.meetLink || 'Will be shared shortly'}` : `Clinic Address: ${a.location || CLINIC.address.full}`}\n\n` +
+    `Contact: ${CLINIC.phone.display}\nWebsite: ${appUrl}\n\n${CLINIC.name}`;
+
+  return { subject, html, text };
+}

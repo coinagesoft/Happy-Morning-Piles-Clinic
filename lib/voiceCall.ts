@@ -2,6 +2,7 @@ import type { ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 import { getPool, ensureDatabaseSchema } from './db';
 import { getAppointmentById, updateAppointment, type Appointment } from './storage';
 import { CLINIC } from './clinicInfo';
+import { getAppUrl } from './appUrl';
 
 /**
  * AI voice CONFIRMATION call (only) - placed automatically after an appointment is booked.
@@ -220,11 +221,11 @@ RULES
 
   const firstMessage = `नमस्कार, मैं ${CLINIC.shortName} क्लिनिक से बोल रही हूँ। क्या मेरी बात ${appt.fullName} जी से हो रही है?`;
 
-  const appUrl = (process.env.NEXT_PUBLIC_APP_URL || '').replace(/\/$/, '');
+  const appUrl = getAppUrl();
   const webhookOk = /^https:\/\//i.test(appUrl);
   if (!webhookOk) {
     console.warn(
-      '[voice] NEXT_PUBLIC_APP_URL is not a public https URL - call results will NOT be reported back. Use your domain or an ngrok URL.'
+      '[voice] App URL is not a public https URL - call results will NOT be reported back. Use your domain or an ngrok URL.'
     );
   }
 
