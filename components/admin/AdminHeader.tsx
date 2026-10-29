@@ -41,7 +41,8 @@ export default function AdminHeader({
   const role = adminUser?.role || 'doctor';
   const isReceptionist = role === 'receptionist';
   const isPharmacist = role === 'pharmacist';
-  const isDoctor = !isReceptionist && !isPharmacist;
+  const isSuperAdmin = role === 'super_admin' || role === 'admin';
+  const isDoctor = role === 'doctor';
 
   return (
     <>
@@ -56,7 +57,7 @@ export default function AdminHeader({
 
             {/* Role Badge Indicator */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              {isDoctor && (
+              {(isDoctor || isSuperAdmin) && (
                 <span
                   style={{
                     display: 'inline-flex',
@@ -71,10 +72,10 @@ export default function AdminHeader({
                     fontWeight: 700,
                     letterSpacing: '0.3px',
                   }}
-                  title="Full Clinical, Financial & Administrative Access"
+                  title={isSuperAdmin ? "Super administrator access" : "Doctor clinical access"}
                 >
                   <span>🩺</span>
-                  <span>Doctor / Super Admin</span>
+                  <span>{isSuperAdmin ? "Super Admin" : "Doctor"}</span>
                 </span>
               )}
 
@@ -131,7 +132,7 @@ export default function AdminHeader({
           </div>
 
           <div className="admin-topbar-right">
-            {isDoctor && <WhatsAppStatus adminFetch={adminFetch} />}
+            {(isDoctor || isSuperAdmin) && <WhatsAppStatus adminFetch={adminFetch} />}
             <button type="button" className="btn-logout" onClick={onLogout}>
               <IconLogOut />
               <span>Logout</span>
@@ -144,7 +145,7 @@ export default function AdminHeader({
       <nav className="admin-nav-tabs">
         <div className="container nav-tabs-container">
           {/* Doctor Only: Overview & Financial Analytics */}
-          {isDoctor && (
+          {(isDoctor || isSuperAdmin) && (
             <button
               type="button"
               className={`admin-tab-btn ${activeTab === 'overview' ? 'active' : ''}`}
@@ -156,7 +157,7 @@ export default function AdminHeader({
           )}
 
           {/* Doctor & Receptionist: Appointments */}
-          {(isDoctor || isReceptionist) && (
+          {(isDoctor || isReceptionist || isSuperAdmin) && (
             <button
               type="button"
               className={`admin-tab-btn ${activeTab === 'appointments' ? 'active' : ''}`}
@@ -169,7 +170,7 @@ export default function AdminHeader({
           )}
 
           {/* Doctor & Receptionist: Patients Directory */}
-          {(isDoctor || isReceptionist) && (
+          {(isDoctor || isReceptionist || isSuperAdmin) && (
             <button
               type="button"
               className={`admin-tab-btn ${activeTab === 'patients' ? 'active' : ''}`}
@@ -182,7 +183,7 @@ export default function AdminHeader({
           )}
 
           {/* Doctor & Receptionist: Payments & Billing */}
-          {(isDoctor || isReceptionist) && (
+          {(isDoctor || isReceptionist || isSuperAdmin) && (
             <button
               type="button"
               className={`admin-tab-btn ${activeTab === 'payments' ? 'active' : ''}`}
@@ -194,7 +195,7 @@ export default function AdminHeader({
           )}
 
           {/* Doctor Only: Doctor Availability */}
-          {isDoctor && (
+          {(isDoctor || isSuperAdmin) && (
             <button
               type="button"
               className={`admin-tab-btn ${activeTab === 'availability' ? 'active' : ''}`}
@@ -206,8 +207,15 @@ export default function AdminHeader({
             </button>
           )}
 
+          {(isSuperAdmin || isReceptionist || isDoctor) && (
+            <button type="button" className={`admin-tab-btn ${activeTab === 'team' ? 'active' : ''}`} onClick={() => setActiveTab('team')}>
+              <IconUsers />
+              <span>Doctors &amp; Assignments</span>
+            </button>
+          )}
+
           {/* Doctor & Pharmacist: Medicines & Inventory */}
-          {(isDoctor || isPharmacist) && (
+          {(isDoctor || isPharmacist || isSuperAdmin) && (
             <button
               type="button"
               className={`admin-tab-btn ${activeTab === 'medicines' ? 'active' : ''}`}

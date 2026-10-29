@@ -29,6 +29,9 @@ interface AppointmentRow extends RowDataPacket {
   notes: string | null;
   consultation_type?: 'online' | 'offline' | null;
   location?: string | null;
+  assigned_doctor_id?: string | null;
+  assigned_by_user_id?: string | null;
+  assigned_at?: string | null;
   created_at: string;
 }
 
@@ -83,6 +86,9 @@ function mapRowToAppointment(row: AppointmentRow): Appointment {
     notes: row.notes || '',
     consultationType: isOffline ? 'offline' : 'online',
     location: row.location || undefined,
+    assignedDoctorId: row.assigned_doctor_id || null,
+    assignedByUserId: row.assigned_by_user_id || null,
+    assignedAt: row.assigned_at || null,
   };
 }
 

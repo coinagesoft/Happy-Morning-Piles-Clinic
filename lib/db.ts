@@ -174,6 +174,10 @@ export async function ensureDatabaseSchema(): Promise<void> {
   } catch {
     // Column might already exist
   }
+  try { await pool.execute(`ALTER TABLE appointments ADD COLUMN assigned_doctor_id VARCHAR(64) NULL`); } catch { /* already exists */ }
+  try { await pool.execute(`ALTER TABLE appointments ADD COLUMN assigned_by_user_id VARCHAR(64) NULL`); } catch { /* already exists */ }
+  try { await pool.execute(`ALTER TABLE appointments ADD COLUMN assigned_at VARCHAR(64) NULL`); } catch { /* already exists */ }
+  try { await pool.execute(`ALTER TABLE appointments ADD INDEX idx_appointment_doctor_date (assigned_doctor_id, appointment_date)`); } catch { /* already exists */ }
 
   await pool.execute(`
     CREATE TABLE IF NOT EXISTS google_oauth_tokens (

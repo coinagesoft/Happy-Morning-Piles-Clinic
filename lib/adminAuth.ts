@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 
-export type AdminRole = 'admin' | 'doctor' | 'receptionist' | 'pharmacist';
+export type AdminRole = 'super_admin' | 'admin' | 'doctor' | 'receptionist' | 'pharmacist';
 
 export interface AdminUserConfig {
   id: string;
@@ -13,6 +13,14 @@ export interface AdminUserConfig {
 }
 
 export const ADMIN_USERS: AdminUserConfig[] = [
+  ...(process.env.SUPER_ADMIN_PASSWORD ? [{
+    id: 'user-super-admin',
+    email: process.env.SUPER_ADMIN_EMAIL || 'superadmin@clinic.local',
+    password: process.env.SUPER_ADMIN_PASSWORD,
+    name: 'Super Admin',
+    role: 'super_admin' as AdminRole,
+    title: 'Clinic System Administrator',
+  }] : []),
   {
     id: 'user-doctor-1',
     email: 'shivrajrbabar@gmail.com',
@@ -303,7 +311,7 @@ export function verifyAdminRequest(
   // Role verification (if allowedRoles specified)
   if (allowedRoles && allowedRoles.length > 0) {
     const userRole = verifiedPayload.role || 'admin';
-    const isAllowed = allowedRoles.includes(userRole) || userRole === 'admin';
+    const isAllowed = allowedRoles.includes(userRole as AdminRole) || userRole === 'admin' || userRole === 'super_admin';
     if (!isAllowed) {
       return {
         authenticated: false,

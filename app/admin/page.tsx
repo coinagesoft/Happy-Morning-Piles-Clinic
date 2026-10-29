@@ -25,6 +25,7 @@ import AdminBookAppointmentModal from '@/components/admin/AdminBookAppointmentMo
 import AdminRescheduleModal from '@/components/admin/AdminRescheduleModal';
 import PrescriptionModal from '@/components/admin/PrescriptionModal';
 import AdminMedicinesTab from '@/components/admin/tabs/AdminMedicinesTab';
+import AdminTeamTab from '@/components/admin/AdminTeamTab';
 import { Medicine } from '@/lib/medicines';
 import { toast } from '@/components/ui/Toast';
 
@@ -346,11 +347,12 @@ export default function AdminPage() {
   const role = adminUser?.role || 'doctor';
   const isReceptionist = role === 'receptionist';
   const isPharmacist = role === 'pharmacist';
-  const isDoctor = !isReceptionist && !isPharmacist;
+  const isSuperAdmin = role === 'super_admin' || role === 'admin';
+  const isDoctor = role === 'doctor';
 
   // Auto-redirect if user lands on an unauthorized tab
   useEffect(() => {
-    if (isReceptionist && !['appointments', 'patients', 'payments'].includes(activeTab)) {
+    if (isReceptionist && !['appointments', 'patients', 'payments', 'team'].includes(activeTab)) {
       setActiveTab('appointments');
     } else if (isPharmacist && activeTab !== 'medicines') {
       setActiveTab('medicines');
@@ -360,7 +362,7 @@ export default function AdminPage() {
   // Initial Data Load on Authentication based on role
   useEffect(() => {
     if (isAuthenticated) {
-      if (isDoctor) {
+      if (isDoctor || isSuperAdmin) {
         loadAppointments();
         loadRevenue();
         loadOverrides();
@@ -374,7 +376,7 @@ export default function AdminPage() {
         loadMedicines();
       }
     }
-  }, [isAuthenticated, isDoctor, isReceptionist, isPharmacist, loadAppointments, loadRevenue, loadOverrides, loadMedicines, loadFollowUps]);
+  }, [isAuthenticated, isDoctor, isSuperAdmin, isReceptionist, isPharmacist, loadAppointments, loadRevenue, loadOverrides, loadMedicines, loadFollowUps]);
 
   // Update Appointment Status (Instant Optimistic UI + Server Sync)
   const handleUpdateStatus = async (
@@ -635,7 +637,7 @@ export default function AdminPage() {
 
       {/* Main Admin Content Tab Panes */}
       <main className="admin-main-container container">
-        {activeTab === 'overview' && isDoctor && (
+        {activeTab === 'overview' && (isDoctor || isSuperAdmin) && (
           <AdminOverviewTab
             stats={stats}
             patientCount={patientDirectory.length}
@@ -644,7 +646,7 @@ export default function AdminPage() {
           />
         )}
 
-        {activeTab === 'appointments' && (isDoctor || isReceptionist) && (
+        {activeTab === 'appointments' && (isDoctor || isReceptionist || isSuperAdmin) && (
           <AdminAppointmentsTab
             userRole={role}
             appointments={appointments}
@@ -675,7 +677,7 @@ export default function AdminPage() {
           />
         )}
 
-        {activeTab === 'patients' && (isDoctor || isReceptionist) && (
+        {activeTab === 'patients' && (isDoctor || isReceptionist || isSuperAdmin) && (
           <AdminPatientsTab
             patients={patientDirectory}
             followUps={followUps}
@@ -683,14 +685,14 @@ export default function AdminPage() {
           />
         )}
 
-        {activeTab === 'payments' && (isDoctor || isReceptionist) && (
+        {activeTab === 'payments' && (isDoctor || isReceptionist || isSuperAdmin) && (
           <AdminPaymentsTab
             appointments={appointments}
             revenueData={revenueData}
           />
         )}
 
-        {activeTab === 'availability' && isDoctor && (
+        {activeTab === 'availability' && (isDoctor || isSuperAdmin) && (
           <div className="tab-pane-fade">
             <DoctorAvailabilityManager
               overrides={overrides}
@@ -704,7 +706,13 @@ export default function AdminPage() {
           </div>
         )}
 
-        {activeTab === 'medicines' && (isDoctor || isPharmacist) && (
+        {activeTab === 'team' && (isSuperAdmin || isReceptionist || isDoctor) && (
+          <div className="tab-pane-fade">
+            <AdminTeamTab adminFetch={adminFetch} userRole={role} />
+          </div>
+        )}
+
+        {activeTab === 'medicines' && (isDoctor || isPharmacist || isSuperAdmin) && (
           <AdminMedicinesTab
             userRole={role}
             medicines={medicines}
@@ -741,7 +749,7 @@ export default function AdminPage() {
       />
 
       {/* Prescription: write, print, email (Doctor only) */}
-      {prescriptionAppointment && isDoctor && (
+      {prescriptionAppointment && (isDoctor || isSuperAdmin) && (
         <PrescriptionModal
           appointment={prescriptionAppointment}
           adminFetch={adminFetch}

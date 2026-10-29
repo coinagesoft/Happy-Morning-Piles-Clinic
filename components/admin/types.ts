@@ -3,11 +3,11 @@ import { DoctorOverride } from '@/lib/availability';
 
 import { Medicine } from '@/lib/medicines';
 
-export type AdminTabType = 'overview' | 'appointments' | 'patients' | 'payments' | 'availability' | 'medicines';
+export type AdminTabType = 'overview' | 'appointments' | 'patients' | 'payments' | 'availability' | 'medicines' | 'team';
 
 export type { Medicine };
 
-export type AdminRole = 'admin' | 'doctor' | 'receptionist' | 'pharmacist';
+export type AdminRole = 'super_admin' | 'admin' | 'doctor' | 'receptionist' | 'pharmacist';
 
 export interface AdminUser {
   email: string;
