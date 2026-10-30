@@ -2,11 +2,12 @@ import Image from 'next/image';
 import Link from 'next/link';
 import type { Metadata } from 'next';
 import { CLINIC } from '@/lib/clinicInfo';
+import TeamSection from '@/components/TeamSection';
 
 export const metadata: Metadata = {
   title: 'About the Clinic | Happy Morning Piles Clinic, Akurdi, PCMC, Pune',
   description:
-    'Happy Morning Piles Clinic is an Ayurvedic injection therapy center in Akurdi, PCMC, Pune. Dr. Mahesh Shete treats piles, fissure, fistula and pilonidal sinus on an OPD basis.',
+    'Happy Morning Piles Clinic is an Ayurvedic injection therapy center in Akurdi, PCMC, Pune. Meet our team of doctors treating piles, fissure, fistula and pilonidal sinus on an OPD basis.',
 };
 
 export default function AboutPage() {
@@ -79,6 +80,21 @@ export default function AboutPage() {
               </Link>
             </div>
           </div>
+        </div>
+      </section>
+
+      {/* Our Medical Team */}
+      <section className="meditro-section team-section" id="our-team">
+        <div className="container">
+          <div className="meditro-section-header">
+            <span className="meditro-badge-orange">Our Team</span>
+            <h2>Meet Our Doctors</h2>
+            <p className="section-lead-p">
+              Experienced practitioners providing private, compassionate and patient-centric care.
+            </p>
+          </div>
+
+          <TeamSection />
         </div>
       </section>
 
