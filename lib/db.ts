@@ -64,7 +64,7 @@ export function getPool(): mysql.Pool {
  * old "schema is ready" flag alive, so without a version a new column would only be
  * created after a full server restart.
  */
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 
 export async function ensureDatabaseSchema(): Promise<void> {
   if (global.__schemaVersion === SCHEMA_VERSION) {
@@ -307,6 +307,140 @@ export async function ensureDatabaseSchema(): Promise<void> {
       created_at VARCHAR(64) NOT NULL,
       updated_at VARCHAR(64) NOT NULL,
       INDEX idx_doctor_active (is_active)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  `);
+
+  // ---------- Inventory, Purchase Orders, Invoices & Expenses ----------
+  for (const col of [
+    `ALTER TABLE medicines ADD COLUMN stock_qty INT NOT NULL DEFAULT 0`,
+    `ALTER TABLE medicines ADD COLUMN reorder_level INT NOT NULL DEFAULT 10`,
+    `ALTER TABLE medicines ADD COLUMN unit_cost DECIMAL(10, 2) NOT NULL DEFAULT 0.00`,
+  ]) {
+    try {
+      await pool.execute(col);
+    } catch {
+      // Column might already exist
+    }
+  }
+
+  await pool.execute(`
+    CREATE TABLE IF NOT EXISTS suppliers (
+      id VARCHAR(64) PRIMARY KEY,
+      name VARCHAR(255) NOT NULL,
+      contact_person VARCHAR(255) NOT NULL DEFAULT '',
+      phone VARCHAR(32) NOT NULL DEFAULT '',
+      email VARCHAR(255) NOT NULL DEFAULT '',
+      gstin VARCHAR(32) NOT NULL DEFAULT '',
+      address TEXT,
+      notes TEXT,
+      created_at VARCHAR(64) NOT NULL,
+      updated_at VARCHAR(64) NOT NULL,
+      INDEX idx_supplier_name (name)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  `);
+
+  await pool.execute(`
+    CREATE TABLE IF NOT EXISTS purchase_orders (
+      id VARCHAR(64) PRIMARY KEY,
+      po_number VARCHAR(64) NOT NULL UNIQUE,
+      supplier_id VARCHAR(64) NULL,
+      supplier_name VARCHAR(255) NOT NULL DEFAULT '',
+      order_date VARCHAR(16) NOT NULL,
+      expected_date VARCHAR(16) NOT NULL DEFAULT '',
+      status VARCHAR(16) NOT NULL DEFAULT 'draft',
+      notes TEXT,
+      subtotal DECIMAL(12, 2) NOT NULL DEFAULT 0,
+      tax_total DECIMAL(12, 2) NOT NULL DEFAULT 0,
+      total DECIMAL(12, 2) NOT NULL DEFAULT 0,
+      created_at VARCHAR(64) NOT NULL,
+      updated_at VARCHAR(64) NOT NULL,
+      INDEX idx_po_status (status),
+      INDEX idx_po_date (order_date)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  `);
+
+  await pool.execute(`
+    CREATE TABLE IF NOT EXISTS purchase_order_items (
+      id VARCHAR(64) PRIMARY KEY,
+      po_id VARCHAR(64) NOT NULL,
+      medicine_id VARCHAR(64) NULL,
+      medicine_name VARCHAR(255) NOT NULL,
+      potency VARCHAR(255) NOT NULL DEFAULT '',
+      form VARCHAR(100) NOT NULL DEFAULT '',
+      quantity INT NOT NULL DEFAULT 0,
+      received_qty INT NOT NULL DEFAULT 0,
+      unit_cost DECIMAL(10, 2) NOT NULL DEFAULT 0,
+      tax_percent DECIMAL(5, 2) NOT NULL DEFAULT 0,
+      line_total DECIMAL(12, 2) NOT NULL DEFAULT 0,
+      INDEX idx_poi_po (po_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  `);
+
+  await pool.execute(`
+    CREATE TABLE IF NOT EXISTS purchase_invoices (
+      id VARCHAR(64) PRIMARY KEY,
+      invoice_number VARCHAR(100) NOT NULL,
+      supplier_id VARCHAR(64) NULL,
+      supplier_name VARCHAR(255) NOT NULL DEFAULT '',
+      po_id VARCHAR(64) NULL,
+      invoice_date VARCHAR(16) NOT NULL,
+      due_date VARCHAR(16) NOT NULL DEFAULT '',
+      subtotal DECIMAL(12, 2) NOT NULL DEFAULT 0,
+      tax_total DECIMAL(12, 2) NOT NULL DEFAULT 0,
+      total DECIMAL(12, 2) NOT NULL DEFAULT 0,
+      amount_paid DECIMAL(12, 2) NOT NULL DEFAULT 0,
+      notes TEXT,
+      created_at VARCHAR(64) NOT NULL,
+      updated_at VARCHAR(64) NOT NULL,
+      INDEX idx_inv_date (invoice_date),
+      INDEX idx_inv_supplier (supplier_id),
+      INDEX idx_inv_po (po_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  `);
+
+  await pool.execute(`
+    CREATE TABLE IF NOT EXISTS invoice_payments (
+      id VARCHAR(64) PRIMARY KEY,
+      invoice_id VARCHAR(64) NOT NULL,
+      amount DECIMAL(12, 2) NOT NULL,
+      method VARCHAR(64) NOT NULL DEFAULT 'Cash',
+      paid_on VARCHAR(16) NOT NULL,
+      reference VARCHAR(255) NOT NULL DEFAULT '',
+      created_at VARCHAR(64) NOT NULL,
+      INDEX idx_ip_invoice (invoice_id),
+      INDEX idx_ip_date (paid_on)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  `);
+
+  await pool.execute(`
+    CREATE TABLE IF NOT EXISTS expenses (
+      id VARCHAR(64) PRIMARY KEY,
+      expense_date VARCHAR(16) NOT NULL,
+      category VARCHAR(100) NOT NULL DEFAULT 'Other',
+      description VARCHAR(500) NOT NULL DEFAULT '',
+      vendor VARCHAR(255) NOT NULL DEFAULT '',
+      amount DECIMAL(12, 2) NOT NULL DEFAULT 0,
+      payment_method VARCHAR(64) NOT NULL DEFAULT 'Cash',
+      reference VARCHAR(255) NOT NULL DEFAULT '',
+      created_at VARCHAR(64) NOT NULL,
+      updated_at VARCHAR(64) NOT NULL,
+      INDEX idx_exp_date (expense_date),
+      INDEX idx_exp_cat (category)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  `);
+
+  await pool.execute(`
+    CREATE TABLE IF NOT EXISTS stock_movements (
+      id VARCHAR(64) PRIMARY KEY,
+      medicine_id VARCHAR(64) NOT NULL,
+      medicine_name VARCHAR(255) NOT NULL,
+      type VARCHAR(16) NOT NULL,
+      qty_change INT NOT NULL,
+      reference VARCHAR(128) NOT NULL DEFAULT '',
+      reason VARCHAR(255) NOT NULL DEFAULT '',
+      created_at VARCHAR(64) NOT NULL,
+      INDEX idx_sm_med (medicine_id),
+      INDEX idx_sm_created (created_at)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
   `);
 

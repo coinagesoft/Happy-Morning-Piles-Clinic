@@ -26,7 +26,7 @@ import PatientHistoryModal from '@/components/admin/PatientHistoryModal';
 import AdminBookAppointmentModal from '@/components/admin/AdminBookAppointmentModal';
 import AdminRescheduleModal from '@/components/admin/AdminRescheduleModal';
 import PrescriptionModal from '@/components/admin/PrescriptionModal';
-import AdminMedicinesTab from '@/components/admin/tabs/AdminMedicinesTab';
+import AdminMedicinesHubTab from '@/components/admin/tabs/AdminMedicinesHubTab';
 import { Medicine } from '@/lib/medicines';
 import { toast } from '@/components/ui/Toast';
 
@@ -752,7 +752,7 @@ export default function AdminPage() {
         )}
 
         {activeTab === 'medicines' && (isDoctor || isPharmacist) && (
-          <AdminMedicinesTab
+          <AdminMedicinesHubTab
             userRole={role}
             medicines={medicines}
             isLoading={isLoadingMedicines}
