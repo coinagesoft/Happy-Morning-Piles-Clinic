@@ -50,7 +50,7 @@ export default function AppointmentPage() {
             <span className="meditro-badge-orange" style={{ marginBottom: '12px' }}>
               Clinic Info
             </span>
-            <h2>Visit {CLINIC.doctor.name}</h2>
+            <h2>Happy Morning Piles Clinic</h2>
             <div className="bk-clinic-rows">
               <div className="info-item">
                 <span>Address</span>

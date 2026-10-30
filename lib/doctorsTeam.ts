@@ -44,7 +44,7 @@ export const TEAM: TeamMember[] = [
   {
     slug: 'shubham-pisal',
     name: 'Dr. Shubham Pisal',
-    role: 'Ayurvedic Proctologist',
+    role: 'Consultant Proctologist & General Physician',
     photo: '/assets/doctors/dr-shubham-pisal.jpg',
     credentials: ['BAMS', 'Ayurvedic Proctology'],
     summary:
@@ -52,7 +52,7 @@ export const TEAM: TeamMember[] = [
   },
   {
     slug: 'saachi-karanjikar',
-    name: 'Dr. Saachi Karanjikar',
+    name: 'Dr. Saanchi Karanjikar',
     role: 'Neuro Physiotherapist',
     photo: '/assets/doctors/dr-saachi-karanjikar.jpg',
     credentials: ['MPT (Neuro)', 'BPT'],

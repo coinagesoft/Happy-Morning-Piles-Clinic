@@ -60,7 +60,6 @@ export default function HomePage() {
                 priority
                 unoptimized
                 className="hero-doctor-img"
-                style={{ aspectRatio: '1 / 1', objectFit: 'contain', background: '#fff', borderRadius: '50%', marginBottom: '20px' }}
               />
             </div>
             <span className="deco-waves-orange" aria-hidden="true">

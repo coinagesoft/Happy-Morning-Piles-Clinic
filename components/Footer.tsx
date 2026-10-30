@@ -90,7 +90,10 @@ export default function Footer() {
 
             <div className="footer-clinic-card">
               <p>
-                <strong>Address:</strong> {CLINIC.address.full}
+                <strong>Address:</strong>{' '}
+                <a href={CLINIC.address.mapUrl} target="_blank" rel="noopener noreferrer">
+                  {CLINIC.address.full}
+                </a>
               </p>
               <p>
                 <strong>Doctor:</strong> {CLINIC.doctor.name}, {CLINIC.doctor.title}
@@ -106,7 +109,7 @@ export default function Footer() {
             </Link>
 
             <div className="footer-social-row">
-              <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(CLINIC.address.full)}`} target="_blank" rel="noopener noreferrer" aria-label="Clinic Location" className="social-pill">
+              <a href={CLINIC.address.mapUrl} target="_blank" rel="noopener noreferrer" aria-label="Clinic Location" className="social-pill">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
                   <circle cx="12" cy="10" r="3" />

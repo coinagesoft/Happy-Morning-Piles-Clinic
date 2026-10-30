@@ -32,6 +32,9 @@ export const CLINIC = {
     landmark: 'Nigdi Flyover, Akurdi, PCMC, Pune',
     landmarkMr: 'निगडी फ्लाईओव्हर, आकुर्डी, पीसीएमसी, पुणे',
     area: 'Akurdi, PCMC, Pune',
+    /** Google Maps listing for the clinic (opens the exact pin). */
+    mapUrl:
+      'https://www.google.com/maps/place/Happy+Morning+Piles+Clinic/@18.6565781,73.7767484,17z/data=!3m1!4b1!4m6!3m5!1s0x3bc2b90e4f574f25:0x69c29867eceb7f56!8m2!3d18.6565781!4d73.7793233!16s%2Fg%2F11zz1m2_ny',
   },
 
   logo: '/assets/happy-morning-logo-transparent.png',

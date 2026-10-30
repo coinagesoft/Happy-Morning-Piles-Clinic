@@ -3,7 +3,7 @@
 Next.js website and appointment system for **Happy Morning Piles Clinic** (Ayurvedic Injection Therapy Center), Akurdi, PCMC, Pune, with **Dr. Mahesh Shete**, Piles & Fistula Specialist.
 
 - Phone: +91 70667 47811
-- Address: 4th Floor, Ecorb Millinia Tower, Vivek Nagar, Akurdi, PCMC, Pune - 411035
+- Address: 4th Floor, Ecorb Millinia Tower, Vivek Nagar, Pavle bridge, Akurdi, PCMC, Pune - 411035
 
 ## Editing clinic details
 All public clinic details live in `lib/clinicInfo.ts`. Treatments are in `lib/treatmentsData.ts` and health guides in `lib/newsData.ts`.
