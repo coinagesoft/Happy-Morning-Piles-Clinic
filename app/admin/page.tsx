@@ -20,12 +20,13 @@ import AdminAppointmentsTab from '@/components/admin/tabs/AdminAppointmentsTab';
 import AdminPatientsTab from '@/components/admin/tabs/AdminPatientsTab';
 import AdminPaymentsTab from '@/components/admin/tabs/AdminPaymentsTab';
 import DoctorAvailabilityManager from '@/components/admin/DoctorAvailabilityManager';
+import DoctorsManager from '@/components/admin/DoctorsManager';
+import AssignDoctorModal from '@/components/admin/AssignDoctorModal';
 import PatientHistoryModal from '@/components/admin/PatientHistoryModal';
 import AdminBookAppointmentModal from '@/components/admin/AdminBookAppointmentModal';
 import AdminRescheduleModal from '@/components/admin/AdminRescheduleModal';
 import PrescriptionModal from '@/components/admin/PrescriptionModal';
 import AdminMedicinesTab from '@/components/admin/tabs/AdminMedicinesTab';
-import AdminTeamTab from '@/components/admin/AdminTeamTab';
 import { Medicine } from '@/lib/medicines';
 import { toast } from '@/components/ui/Toast';
 
@@ -91,6 +92,8 @@ export default function AdminPage() {
 
   // Admin Reschedule Appointment Drawer State
   const [rescheduleAppointment, setRescheduleAppointment] = useState<Appointment | null>(null);
+  const [assignAppointment, setAssignAppointment] = useState<Appointment | null>(null);
+  const [myDoctorId, setMyDoctorId] = useState<string | null>(null);
 
   // Follow-up dates set on prescriptions (shown in the Patient Directory)
   const [followUps, setFollowUps] = useState<FollowUpRecord[]>([]);
@@ -290,10 +293,40 @@ export default function AdminPage() {
       .then((data) => {
         if (data.appointments) setAppointments(data.appointments);
         if (data.stats) setStats(data.stats);
+        setMyDoctorId(data.myDoctorId || null);
       })
       .catch((err) => console.error('Failed to load admin appointments:', err))
       .finally(() => setIsLoadingAppointments(false));
   }, [adminFetch]);
+
+  // Doctor assignment: merge the updated appointment into local state
+  const applyAssignedAppointment = useCallback((updated: Appointment) => {
+    setAppointments((prev) => prev.map((a) => (a.id === updated.id ? { ...a, ...updated } : a)));
+  }, []);
+
+  // A doctor takes (assign = true) or releases (assign = false) a patient
+  const handleSelfAssign = async (appt: Appointment, assign: boolean) => {
+    try {
+      const res = await adminFetch('/api/admin/appointments/assign', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ appointmentId: appt.id, self: assign }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error || 'Could not update assignment.', 'Assignment Failed');
+        loadAppointments();
+        return;
+      }
+      applyAssignedAppointment(data.appointment);
+      toast.success(
+        assign ? `${appt.fullName} is now assigned to you.` : `${appt.fullName} was released.`,
+        assign ? 'Patient Taken' : 'Patient Released'
+      );
+    } catch {
+      toast.error('Network error. Please try again.', 'Assignment Failed');
+    }
+  };
 
   // Fetch follow-up dates from prescriptions
   const loadFollowUps = useCallback(() => {
@@ -347,22 +380,24 @@ export default function AdminPage() {
   const role = adminUser?.role || 'doctor';
   const isReceptionist = role === 'receptionist';
   const isPharmacist = role === 'pharmacist';
-  const isSuperAdmin = role === 'super_admin' || role === 'admin';
-  const isDoctor = role === 'doctor';
+  const isDoctor = !isReceptionist && !isPharmacist;
+  const isSuperAdmin = role === 'admin';
 
   // Auto-redirect if user lands on an unauthorized tab
   useEffect(() => {
-    if (isReceptionist && !['appointments', 'patients', 'payments', 'team'].includes(activeTab)) {
+    if (isReceptionist && !['appointments', 'patients', 'payments'].includes(activeTab)) {
       setActiveTab('appointments');
     } else if (isPharmacist && activeTab !== 'medicines') {
       setActiveTab('medicines');
+    } else if (!isSuperAdmin && activeTab === 'doctors') {
+      setActiveTab('overview');
     }
-  }, [isReceptionist, isPharmacist, activeTab]);
+  }, [isReceptionist, isPharmacist, isSuperAdmin, activeTab]);
 
   // Initial Data Load on Authentication based on role
   useEffect(() => {
     if (isAuthenticated) {
-      if (isDoctor || isSuperAdmin) {
+      if (isDoctor) {
         loadAppointments();
         loadRevenue();
         loadOverrides();
@@ -376,7 +411,7 @@ export default function AdminPage() {
         loadMedicines();
       }
     }
-  }, [isAuthenticated, isDoctor, isSuperAdmin, isReceptionist, isPharmacist, loadAppointments, loadRevenue, loadOverrides, loadMedicines, loadFollowUps]);
+  }, [isAuthenticated, isDoctor, isReceptionist, isPharmacist, loadAppointments, loadRevenue, loadOverrides, loadMedicines, loadFollowUps]);
 
   // Update Appointment Status (Instant Optimistic UI + Server Sync)
   const handleUpdateStatus = async (
@@ -637,7 +672,7 @@ export default function AdminPage() {
 
       {/* Main Admin Content Tab Panes */}
       <main className="admin-main-container container">
-        {activeTab === 'overview' && (isDoctor || isSuperAdmin) && (
+        {activeTab === 'overview' && isDoctor && (
           <AdminOverviewTab
             stats={stats}
             patientCount={patientDirectory.length}
@@ -646,9 +681,12 @@ export default function AdminPage() {
           />
         )}
 
-        {activeTab === 'appointments' && (isDoctor || isReceptionist || isSuperAdmin) && (
+        {activeTab === 'appointments' && (isDoctor || isReceptionist) && (
           <AdminAppointmentsTab
             userRole={role}
+            myDoctorId={myDoctorId}
+            onAssignDoctor={(appt) => setAssignAppointment(appt)}
+            onSelfAssign={handleSelfAssign}
             appointments={appointments}
             stats={stats}
             overrides={overrides}
@@ -677,7 +715,7 @@ export default function AdminPage() {
           />
         )}
 
-        {activeTab === 'patients' && (isDoctor || isReceptionist || isSuperAdmin) && (
+        {activeTab === 'patients' && (isDoctor || isReceptionist) && (
           <AdminPatientsTab
             patients={patientDirectory}
             followUps={followUps}
@@ -685,14 +723,14 @@ export default function AdminPage() {
           />
         )}
 
-        {activeTab === 'payments' && (isDoctor || isReceptionist || isSuperAdmin) && (
+        {activeTab === 'payments' && (isDoctor || isReceptionist) && (
           <AdminPaymentsTab
             appointments={appointments}
             revenueData={revenueData}
           />
         )}
 
-        {activeTab === 'availability' && (isDoctor || isSuperAdmin) && (
+        {activeTab === 'availability' && isDoctor && (
           <div className="tab-pane-fade">
             <DoctorAvailabilityManager
               overrides={overrides}
@@ -706,13 +744,14 @@ export default function AdminPage() {
           </div>
         )}
 
-        {activeTab === 'team' && (isSuperAdmin || isReceptionist || isDoctor) && (
-          <div className="tab-pane-fade">
-            <AdminTeamTab adminFetch={adminFetch} userRole={role} />
-          </div>
+        {activeTab === 'doctors' && isSuperAdmin && (
+          <DoctorsManager
+            adminFetch={adminFetch}
+            currentUser={adminUser ? { email: adminUser.email, name: adminUser.name } : null}
+          />
         )}
 
-        {activeTab === 'medicines' && (isDoctor || isPharmacist || isSuperAdmin) && (
+        {activeTab === 'medicines' && (isDoctor || isPharmacist) && (
           <AdminMedicinesTab
             userRole={role}
             medicines={medicines}
@@ -749,7 +788,7 @@ export default function AdminPage() {
       />
 
       {/* Prescription: write, print, email (Doctor only) */}
-      {prescriptionAppointment && (isDoctor || isSuperAdmin) && (
+      {prescriptionAppointment && isDoctor && (
         <PrescriptionModal
           appointment={prescriptionAppointment}
           adminFetch={adminFetch}
@@ -758,6 +797,14 @@ export default function AdminPage() {
           onClose={() => setPrescriptionAppointment(null)}
         />
       )}
+
+      {/* Receptionist / Super Admin: assign an available doctor to a patient */}
+      <AssignDoctorModal
+        appointment={assignAppointment}
+        adminFetch={adminFetch}
+        onClose={() => setAssignAppointment(null)}
+        onAssigned={applyAssignedAppointment}
+      />
 
       {/* Admin Reschedule Appointment Slide-Over Drawer */}
       <AdminRescheduleModal

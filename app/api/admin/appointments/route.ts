@@ -1,7 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getPool } from '@/lib/db';
-import type { RowDataPacket } from 'mysql2/promise';
-import { ensureMultiDoctorSchema } from '@/lib/multiDoctor';
 import crypto from 'crypto';
 import {
   getAllAppointments,
@@ -12,6 +9,7 @@ import {
   Appointment,
 } from '@/lib/storage';
 import { verifyAdminRequest } from '@/lib/adminAuth';
+import { getDoctorFromToken } from '@/lib/doctors';
 import { isTimeSlotTaken, getClinicSettings } from '@/lib/clinicSettings';
 import { getSlotLocation } from '@/lib/slots';
 import {
@@ -43,21 +41,21 @@ export async function GET(request: NextRequest) {
     const modeFilter = searchParams.get('mode') || 'all';
     const forceFresh = searchParams.get('fresh') === 'true' || searchParams.has('_t');
 
-    await ensureMultiDoctorSchema();
     let appointments = await getAllAppointments(forceFresh);
 
-    // Doctors only see their own appointments and unassigned appointments they may claim.
-    if (auth.payload?.role === 'doctor') {
-      appointments = appointments.filter((a) => !a.assignedDoctorId || a.assignedDoctorId === auth.payload?.sub);
+    // Doctors added by the Super Admin only see their own patients plus the unassigned
+    // ones (which they can take). A Super Admin who is also listed as a doctor still sees
+    // everything but can take patients too. Everyone else sees all appointments.
+    let myDoctorId: string | null = null;
+    if (auth.payload && (auth.payload.role === 'doctor' || auth.payload.role === 'admin')) {
+      const me = await getDoctorFromToken(auth.payload);
+      if (me) {
+        myDoctorId = me.id;
+        if (auth.payload.role === 'doctor') {
+          appointments = appointments.filter((a) => !a.doctorId || a.doctorId === me.id);
+        }
+      }
     }
-    const [doctorRows] = await getPool().execute<RowDataPacket[]>(
-      `SELECT id, name FROM clinic_doctors WHERE active = 1`
-    );
-    const doctorNames = new Map(doctorRows.map((row) => [String(row.id), String(row.name)]));
-    appointments = appointments.map((a) => ({
-      ...a,
-      assignedDoctorName: a.assignedDoctorId ? doctorNames.get(a.assignedDoctorId) || '' : '',
-    }));
 
     // Sort by date descending (latest first)
     appointments.sort((a, b) => {
@@ -123,6 +121,7 @@ export async function GET(request: NextRequest) {
 
     const response = NextResponse.json({
       appointments,
+      myDoctorId,
       stats: {
         totalCount,
         confirmedCount,
@@ -187,8 +186,14 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
-    if (auth.payload?.role === 'doctor' && existing.assignedDoctorId !== auth.payload.sub) {
-      return NextResponse.json({ error: 'Doctors can only update appointments assigned to them. Assign an unassigned patient to yourself first.' }, { status: 403 });
+    if (auth.payload?.role === 'doctor') {
+      const me = await getDoctorFromToken(auth.payload);
+      if (me && existing.doctorId && existing.doctorId !== me.id) {
+        return NextResponse.json(
+          { error: 'This patient is assigned to another doctor.' },
+          { status: 403 }
+        );
+      }
     }
 
     const updates: Partial<Appointment> = {};

@@ -50,10 +50,19 @@ interface AdminAppointmentsTabProps {
     paymentStatus: 'paid' | 'pending' | 'refunded'
   ) => void;
   onDeleteAppointment: (id: string, patientName: string) => void;
+  /** Receptionist / Super Admin: open the "Assign Doctor" dialog. */
+  onAssignDoctor?: (appt: Appointment) => void;
+  /** Doctor: take an unassigned patient (assign=true) or release one of their own (assign=false). */
+  onSelfAssign?: (appt: Appointment, assign: boolean) => void;
+  /** The signed-in doctor's own id (null for other roles). */
+  myDoctorId?: string | null;
 }
 
 export default function AdminAppointmentsTab({
   userRole = 'doctor',
+  onAssignDoctor,
+  onSelfAssign,
+  myDoctorId = null,
   appointments,
   stats,
   overrides,
@@ -227,6 +236,7 @@ export default function AdminAppointmentsTab({
 
   return (
     <div className="tab-pane-fade">
+      <style>{DOCTOR_CELL_STYLES}</style>
       {/* Appointments Header Row */}
       <div className="directory-header-row">
         <div>
@@ -456,6 +466,7 @@ export default function AdminAppointmentsTab({
                     <th>Date &amp; Time</th>
                     <th>Mode</th>
                     <th>Patient Details</th>
+                    <th>Doctor</th>
                     <th>Health Concern</th>
                     <th>Status</th>
                     <th>Payment</th>
@@ -509,6 +520,78 @@ export default function AdminAppointmentsTab({
                           </span>
                           <span className="patient-email">{appt.email}</span>
                         </div>
+                      </td>
+                      <td>
+                        {(() => {
+                          const canAssign =
+                            appt.status === 'confirmed' &&
+                            Boolean(onAssignDoctor) &&
+                            (userRole === 'receptionist' || userRole === 'admin');
+                          const canSelf =
+                            appt.status === 'confirmed' &&
+                            Boolean(onSelfAssign) &&
+                            (userRole === 'doctor' || userRole === 'admin') &&
+                            Boolean(myDoctorId);
+                          const isMine = Boolean(myDoctorId) && appt.doctorId === myDoctorId;
+
+                          if (appt.doctorId) {
+                            const name = appt.doctorName || 'Doctor';
+                            const initial = name.replace(/^dr\.?\s*/i, '').charAt(0).toUpperCase() || 'D';
+                            return (
+                              <div className="dcell">
+                                <span className="dcell-av">{initial}</span>
+                                <div className="dcell-text">
+                                  <span className="dcell-name">
+                                    {name}
+                                    {isMine && <em className="dcell-you">You</em>}
+                                  </span>
+                                  {canAssign && (
+                                    <button
+                                      type="button"
+                                      className="dcell-link"
+                                      onClick={() => onAssignDoctor?.(appt)}
+                                    >
+                                      Change doctor
+                                    </button>
+                                  )}
+                                  {canSelf && isMine && (
+                                    <button
+                                      type="button"
+                                      className="dcell-link"
+                                      onClick={() => onSelfAssign?.(appt, false)}
+                                    >
+                                      Release patient
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          }
+
+                          if (canAssign) {
+                            return (
+                              <button
+                                type="button"
+                                className="dcell-add"
+                                onClick={() => onAssignDoctor?.(appt)}
+                              >
+                                <span aria-hidden="true">+</span> Assign doctor
+                              </button>
+                            );
+                          }
+                          if (canSelf) {
+                            return (
+                              <button
+                                type="button"
+                                className="dcell-add"
+                                onClick={() => onSelfAssign?.(appt, true)}
+                              >
+                                <span aria-hidden="true">+</span> Take patient
+                              </button>
+                            );
+                          }
+                          return <span className="dcell-muted">Not assigned</span>;
+                        })()}
                       </td>
                       <td>
                         <span className="reason-pill">{appt.reason}</span>
@@ -631,3 +714,17 @@ export default function AdminAppointmentsTab({
     </div>
   );
 }
+
+const DOCTOR_CELL_STYLES = `
+.dcell{display:flex;align-items:center;gap:10px;min-width:160px}
+.dcell-av{width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,#6366F1,#4338CA);color:#fff;font-weight:800;font-size:14px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.dcell-text{display:flex;flex-direction:column;gap:2px;min-width:0}
+.dcell-name{font-size:13px;font-weight:700;color:#0F172A;line-height:1.25;white-space:nowrap;display:flex;align-items:center;gap:6px}
+.dcell-you{font-style:normal;font-size:10.5px;font-weight:800;padding:1px 7px;border-radius:999px;background:#ECFDF5;color:#047857;border:1px solid #A7F3D0}
+.dcell-link{border:0;background:none;padding:0;text-align:left;color:#4F46E5;font-size:11.5px;font-weight:700;cursor:pointer}
+.dcell-link:hover{text-decoration:underline}
+.dcell-add{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 14px;border-radius:9px;border:1.5px dashed #F59E0B;background:#FFFBEB;color:#B45309;font-size:12.5px;font-weight:700;cursor:pointer;white-space:nowrap;transition:all .16s ease}
+.dcell-add span{font-size:16px;line-height:1;font-weight:700}
+.dcell-add:hover{background:#F59E0B;border-style:solid;color:#fff;box-shadow:0 2px 8px rgba(245,158,11,.3)}
+.dcell-muted{font-size:12px;color:#94A3B8;white-space:nowrap}
+`;

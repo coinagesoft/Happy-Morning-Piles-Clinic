@@ -1,46 +1,160 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { verifyAdminRequest } from '@/lib/adminAuth';
-import { ensureMultiDoctorSchema } from '@/lib/multiDoctor';
-import { getPool } from '@/lib/db';
-import { invalidateAppointmentsCache } from '@/lib/cache';
-import type { RowDataPacket } from 'mysql2/promise';
+import { getAllAppointments, getAppointmentById, updateAppointment } from '@/lib/storage';
+import { verifyAdminRequest, type AdminRole } from '@/lib/adminAuth';
+import {
+  checkDoctorForAppointment,
+  getDoctorById,
+  getDoctorFromToken,
+  listDoctors,
+} from '@/lib/doctors';
 
 export const dynamic = 'force-dynamic';
 
-export async function POST(request: NextRequest) {
-  const auth = verifyAdminRequest(request, ['super_admin', 'admin', 'receptionist', 'doctor']);
-  if (!auth.authenticated || !auth.payload) return NextResponse.json({ error: auth.error || 'Unauthorized' }, { status: auth.statusCode || 401 });
+// Receptionist assigns, doctor self-assigns, super admin ("admin") can do both.
+const ALLOWED: AdminRole[] = ['receptionist', 'doctor', 'admin'];
+
+function deny(auth: ReturnType<typeof verifyAdminRequest>) {
+  return NextResponse.json({ error: auth.error }, { status: auth.statusCode || 401 });
+}
+
+/**
+ * GET ?appointmentId=...  ->  active doctors with "available" + a reason when not available.
+ * Used by the receptionist's "Assign Doctor" dialog.
+ */
+export async function GET(request: NextRequest) {
+  const auth = verifyAdminRequest(request, ALLOWED);
+  if (!auth.authenticated) return deny(auth);
+
   try {
-    await ensureMultiDoctorSchema();
+    const appointmentId = request.nextUrl.searchParams.get('appointmentId') || '';
+    const appointment = appointmentId ? await getAppointmentById(appointmentId) : null;
+    if (!appointment) {
+      return NextResponse.json({ error: 'Appointment not found.' }, { status: 404 });
+    }
+
+    const [doctors, all] = await Promise.all([listDoctors(), getAllAppointments(true)]);
+    const result = doctors
+      .filter((d) => d.isActive)
+      .map((d) => {
+        const check = checkDoctorForAppointment(d, appointment, all);
+        return {
+          id: d.id,
+          name: d.name,
+          specialization: d.specialization,
+          locations: d.locations,
+          available: check.available,
+          reason: check.reason,
+        };
+      })
+      // Available doctors first
+      .sort((a, b) => Number(b.available) - Number(a.available) || a.name.localeCompare(b.name));
+
+    return NextResponse.json({
+      doctors: result,
+      assignedDoctorId: appointment.doctorId || null,
+    });
+  } catch (err) {
+    console.error('Load assignable doctors error:', err);
+    return NextResponse.json({ error: 'Failed to load doctors.' }, { status: 500 });
+  }
+}
+
+/**
+ * POST { appointmentId, doctorId }  -> receptionist / super admin assigns (doctorId null = unassign)
+ * POST { appointmentId, self: true } -> a doctor takes the patient (self: false = release)
+ */
+export async function POST(request: NextRequest) {
+  const auth = verifyAdminRequest(request, ALLOWED);
+  if (!auth.authenticated || !auth.payload) return deny(auth);
+  const role = auth.payload.role;
+
+  try {
     const body = await request.json();
-    const appointmentId = String(body.appointmentId || '').trim();
-    let doctorId = String(body.doctorId || '').trim();
-    if (!appointmentId) return NextResponse.json({ error: 'Appointment ID is required.' }, { status: 400 });
-    if (auth.payload.role === 'doctor') {
-      doctorId = auth.payload.sub; // doctors may only self-assign
-    } else if (!['super_admin', 'admin', 'receptionist'].includes(auth.payload.role)) {
-      return NextResponse.json({ error: 'You cannot assign appointments.' }, { status: 403 });
+    const appointmentId = String(body.appointmentId || '');
+    const appointment = appointmentId ? await getAppointmentById(appointmentId) : null;
+    if (!appointment) {
+      return NextResponse.json({ error: 'Appointment not found.' }, { status: 404 });
     }
-    if (!doctorId) return NextResponse.json({ error: 'Choose a doctor to assign.' }, { status: 400 });
-    const pool = getPool();
-    const [doctors] = await pool.execute<RowDataPacket[]>(`SELECT d.id, d.name, d.location_id, l.name AS primary_location FROM clinic_doctors d LEFT JOIN clinic_locations l ON l.id = d.location_id WHERE d.id = ? AND d.active = 1 LIMIT 1`, [doctorId]);
-    if (!doctors.length) return NextResponse.json({ error: 'Active doctor not found.' }, { status: 404 });
-    const [appointments] = await pool.execute<RowDataPacket[]>(`SELECT id, assigned_doctor_id, appointment_date, appointment_time FROM appointments WHERE id = ? LIMIT 1`, [appointmentId]);
-    if (!appointments.length) return NextResponse.json({ error: 'Appointment not found.' }, { status: 404 });
-    const currentDoctor = appointments[0].assigned_doctor_id as string | null;
-    if (auth.payload.role === 'doctor' && currentDoctor && currentDoctor !== auth.payload.sub) {
-      return NextResponse.json({ error: 'This patient is already assigned to another doctor. Ask reception or the super admin to reassign.' }, { status: 403 });
+
+    let targetDoctorId: string | null;
+
+    // Doctors can only act on themselves. A Super Admin who is also a doctor may do the
+    // same by sending `self`.
+    const selfMode = role === 'doctor' || (role === 'admin' && typeof body.self === 'boolean');
+
+    if (selfMode) {
+      const me = await getDoctorFromToken(auth.payload);
+      if (!me) {
+        return NextResponse.json(
+          {
+            error:
+              role === 'admin'
+                ? 'Add yourself as a doctor in the Doctors tab first.'
+                : 'Your login is not linked to a doctor profile. Ask the Super Admin to add you in the Doctors tab.',
+          },
+          { status: 403 }
+        );
+      }
+      if (!me.isActive) {
+        return NextResponse.json({ error: 'Your doctor account is inactive.' }, { status: 403 });
+      }
+
+      if (body.self === false) {
+        if (appointment.doctorId !== me.id) {
+          return NextResponse.json({ error: 'This patient is not assigned to you.' }, { status: 403 });
+        }
+        targetDoctorId = null;
+      } else {
+        if (appointment.doctorId && appointment.doctorId !== me.id) {
+          return NextResponse.json(
+            { error: `Already assigned to ${appointment.doctorName || 'another doctor'}.` },
+            { status: 409 }
+          );
+        }
+        targetDoctorId = me.id;
+      }
+    } else {
+      targetDoctorId = body.doctorId ? String(body.doctorId) : null;
     }
-    const [matchingSchedule] = await pool.execute<RowDataPacket[]>(
-      `SELECT l.name AS location_name FROM doctor_schedules s JOIN clinic_locations l ON l.id = s.location_id WHERE s.doctor_id = ? AND s.active = 1 AND s.weekday = (DAYOFWEEK(?) - 1) AND ? >= s.start_time AND ? < s.end_time ORDER BY s.start_time LIMIT 1`,
-      [doctorId, appointments[0].appointment_date, appointments[0].appointment_time, appointments[0].appointment_time]
-    );
-    const location = matchingSchedule[0]?.location_name || doctors[0].primary_location || null;
-    await pool.execute(`UPDATE appointments SET assigned_doctor_id = ?, assigned_by_user_id = ?, assigned_at = ?, location = COALESCE(?, location) WHERE id = ?`, [doctorId, auth.payload.sub, new Date().toISOString(), location, appointmentId]);
-    invalidateAppointmentsCache();
-    return NextResponse.json({ success: true, appointmentId, assignedDoctorId: doctorId, assignedDoctorName: doctors[0].name, location });
-  } catch (error) {
-    console.error('Assign appointment failed:', error);
-    return NextResponse.json({ error: 'Could not assign appointment.' }, { status: 500 });
+
+    // Unassign
+    if (!targetDoctorId) {
+      const updated = await updateAppointment(appointment.id, {
+        doctorId: undefined,
+        doctorName: undefined,
+      });
+      return NextResponse.json({ appointment: updated, message: 'Doctor unassigned.' });
+    }
+
+    if (appointment.status !== 'confirmed') {
+      return NextResponse.json(
+        { error: 'Only confirmed appointments can be assigned to a doctor.' },
+        { status: 400 }
+      );
+    }
+
+    const doctor = await getDoctorById(targetDoctorId);
+    if (!doctor) return NextResponse.json({ error: 'Doctor not found.' }, { status: 404 });
+
+    // Availability check (active, sits at this location, no clash at the same time)
+    const all = await getAllAppointments(true);
+    const check = checkDoctorForAppointment(doctor, appointment, all);
+    if (!check.available) {
+      return NextResponse.json(
+        { error: `${doctor.name} is not available: ${check.reason}.` },
+        { status: 409 }
+      );
+    }
+
+    const updated = await updateAppointment(appointment.id, {
+      doctorId: doctor.id,
+      doctorName: doctor.name,
+    });
+    return NextResponse.json({ appointment: updated, message: `Assigned to ${doctor.name}.` });
+  } catch (err) {
+    console.error('Assign doctor error:', err);
+    const detail =
+      process.env.NODE_ENV !== 'production' && err instanceof Error ? ` (${err.message})` : '';
+    return NextResponse.json({ error: `Failed to assign doctor.${detail}` }, { status: 500 });
   }
 }

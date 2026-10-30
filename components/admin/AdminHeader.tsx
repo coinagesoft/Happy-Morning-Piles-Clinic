@@ -41,8 +41,8 @@ export default function AdminHeader({
   const role = adminUser?.role || 'doctor';
   const isReceptionist = role === 'receptionist';
   const isPharmacist = role === 'pharmacist';
-  const isSuperAdmin = role === 'super_admin' || role === 'admin';
-  const isDoctor = role === 'doctor';
+  const isDoctor = !isReceptionist && !isPharmacist;
+  const isSuperAdmin = role === 'admin';
 
   return (
     <>
@@ -57,7 +57,29 @@ export default function AdminHeader({
 
             {/* Role Badge Indicator */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              {(isDoctor || isSuperAdmin) && (
+              {isSuperAdmin && (
+                <span
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '5px',
+                    padding: '4px 10px',
+                    borderRadius: '20px',
+                    background: '#FDF2F8',
+                    border: '1px solid #FBCFE8',
+                    color: '#9D174D',
+                    fontSize: '11.5px',
+                    fontWeight: 700,
+                    letterSpacing: '0.3px',
+                  }}
+                  title="Super Admin: manage doctors plus full clinical, financial & administrative access"
+                >
+                  <span>👑</span>
+                  <span>Super Admin</span>
+                </span>
+              )}
+
+              {isDoctor && !isSuperAdmin && (
                 <span
                   style={{
                     display: 'inline-flex',
@@ -72,10 +94,10 @@ export default function AdminHeader({
                     fontWeight: 700,
                     letterSpacing: '0.3px',
                   }}
-                  title={isSuperAdmin ? "Super administrator access" : "Doctor clinical access"}
+                  title="Full Clinical, Financial & Administrative Access"
                 >
                   <span>🩺</span>
-                  <span>{isSuperAdmin ? "Super Admin" : "Doctor"}</span>
+                  <span>Doctor</span>
                 </span>
               )}
 
@@ -132,7 +154,7 @@ export default function AdminHeader({
           </div>
 
           <div className="admin-topbar-right">
-            {(isDoctor || isSuperAdmin) && <WhatsAppStatus adminFetch={adminFetch} />}
+            {isDoctor && <WhatsAppStatus adminFetch={adminFetch} />}
             <button type="button" className="btn-logout" onClick={onLogout}>
               <IconLogOut />
               <span>Logout</span>
@@ -145,7 +167,7 @@ export default function AdminHeader({
       <nav className="admin-nav-tabs">
         <div className="container nav-tabs-container">
           {/* Doctor Only: Overview & Financial Analytics */}
-          {(isDoctor || isSuperAdmin) && (
+          {isDoctor && (
             <button
               type="button"
               className={`admin-tab-btn ${activeTab === 'overview' ? 'active' : ''}`}
@@ -157,7 +179,7 @@ export default function AdminHeader({
           )}
 
           {/* Doctor & Receptionist: Appointments */}
-          {(isDoctor || isReceptionist || isSuperAdmin) && (
+          {(isDoctor || isReceptionist) && (
             <button
               type="button"
               className={`admin-tab-btn ${activeTab === 'appointments' ? 'active' : ''}`}
@@ -170,7 +192,7 @@ export default function AdminHeader({
           )}
 
           {/* Doctor & Receptionist: Patients Directory */}
-          {(isDoctor || isReceptionist || isSuperAdmin) && (
+          {(isDoctor || isReceptionist) && (
             <button
               type="button"
               className={`admin-tab-btn ${activeTab === 'patients' ? 'active' : ''}`}
@@ -183,7 +205,7 @@ export default function AdminHeader({
           )}
 
           {/* Doctor & Receptionist: Payments & Billing */}
-          {(isDoctor || isReceptionist || isSuperAdmin) && (
+          {(isDoctor || isReceptionist) && (
             <button
               type="button"
               className={`admin-tab-btn ${activeTab === 'payments' ? 'active' : ''}`}
@@ -195,7 +217,7 @@ export default function AdminHeader({
           )}
 
           {/* Doctor Only: Doctor Availability */}
-          {(isDoctor || isSuperAdmin) && (
+          {isDoctor && (
             <button
               type="button"
               className={`admin-tab-btn ${activeTab === 'availability' ? 'active' : ''}`}
@@ -207,15 +229,20 @@ export default function AdminHeader({
             </button>
           )}
 
-          {(isSuperAdmin || isReceptionist || isDoctor) && (
-            <button type="button" className={`admin-tab-btn ${activeTab === 'team' ? 'active' : ''}`} onClick={() => setActiveTab('team')}>
+          {/* Super Admin Only: Add / edit doctors */}
+          {isSuperAdmin && (
+            <button
+              type="button"
+              className={`admin-tab-btn ${activeTab === 'doctors' ? 'active' : ''}`}
+              onClick={() => setActiveTab('doctors')}
+            >
               <IconUsers />
-              <span>Doctors &amp; Assignments</span>
+              <span>Doctors</span>
             </button>
           )}
 
           {/* Doctor & Pharmacist: Medicines & Inventory */}
-          {(isDoctor || isPharmacist || isSuperAdmin) && (
+          {(isDoctor || isPharmacist) && (
             <button
               type="button"
               className={`admin-tab-btn ${activeTab === 'medicines' ? 'active' : ''}`}

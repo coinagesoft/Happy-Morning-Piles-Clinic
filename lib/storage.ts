@@ -34,10 +34,9 @@ export interface Appointment {
   consultationType?: 'online' | 'offline';
   /** Where the doctor is sitting for this appointment (from the day-wise schedule). */
   location?: string;
-  assignedDoctorId?: string | null;
-  assignedByUserId?: string | null;
-  assignedAt?: string | null;
-  assignedDoctorName?: string;
+  /** Doctor this patient is assigned to (set by the receptionist, or self-assigned by the doctor). */
+  doctorId?: string;
+  doctorName?: string;
 }
 
 interface AppointmentRow extends RowDataPacket {
@@ -61,9 +60,8 @@ interface AppointmentRow extends RowDataPacket {
   notes: string | null;
   consultation_type?: 'online' | 'offline' | null;
   location?: string | null;
-  assigned_doctor_id?: string | null;
-  assigned_by_user_id?: string | null;
-  assigned_at?: string | null;
+  doctor_id?: string | null;
+  doctor_name?: string | null;
   created_at: string;
 }
 
@@ -97,9 +95,8 @@ function mapRowToAppointment(row: AppointmentRow): Appointment {
     notes: row.notes || '',
     consultationType: isOffline ? 'offline' : 'online',
     location: row.location || undefined,
-    assignedDoctorId: row.assigned_doctor_id || null,
-    assignedByUserId: row.assigned_by_user_id || null,
-    assignedAt: row.assigned_at || null,
+    doctorId: row.doctor_id || undefined,
+    doctorName: row.doctor_name || undefined,
   };
 }
 
@@ -211,8 +208,8 @@ export async function saveAppointment(appointment: Appointment): Promise<Appoint
     `INSERT INTO appointments (
       id, full_name, phone, email, age, reason,
       appointment_date, appointment_time, message, meet_link, google_event_id,
-      status, payment_status, amount, payment_method, payment_id, paid_at, notes, consultation_type, location, assigned_doctor_id, assigned_by_user_id, assigned_at, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      status, payment_status, amount, payment_method, payment_id, paid_at, notes, consultation_type, location, doctor_id, doctor_name, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON DUPLICATE KEY UPDATE
       full_name = VALUES(full_name),
       phone = VALUES(phone),
@@ -233,9 +230,8 @@ export async function saveAppointment(appointment: Appointment): Promise<Appoint
       notes = VALUES(notes),
       consultation_type = VALUES(consultation_type),
       location = VALUES(location),
-      assigned_doctor_id = VALUES(assigned_doctor_id),
-      assigned_by_user_id = VALUES(assigned_by_user_id),
-      assigned_at = VALUES(assigned_at)`,
+      doctor_id = VALUES(doctor_id),
+      doctor_name = VALUES(doctor_name)`,
     [
       appointment.id,
       appointment.fullName,
@@ -257,9 +253,8 @@ export async function saveAppointment(appointment: Appointment): Promise<Appoint
       notes,
       consultationType,
       appointment.location || null,
-      appointment.assignedDoctorId || null,
-      appointment.assignedByUserId || null,
-      appointment.assignedAt || null,
+      appointment.doctorId || null,
+      appointment.doctorName || null,
       appointment.createdAt,
     ]
   );

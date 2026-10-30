@@ -1,7 +1,8 @@
 import crypto from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
+import { verifyDoctorLogin } from './doctors';
 
-export type AdminRole = 'super_admin' | 'admin' | 'doctor' | 'receptionist' | 'pharmacist';
+export type AdminRole = 'admin' | 'doctor' | 'receptionist' | 'pharmacist';
 
 export interface AdminUserConfig {
   id: string;
@@ -12,23 +13,9 @@ export interface AdminUserConfig {
   title: string;
 }
 
+// Note: Dr. Mahesh Shete's login (shivrajrbabar@gmail.com) is now a normal entry in the
+// doctors table (imported automatically once), so it shows in the Doctors tab and can be edited.
 export const ADMIN_USERS: AdminUserConfig[] = [
-  ...(process.env.SUPER_ADMIN_PASSWORD ? [{
-    id: 'user-super-admin',
-    email: process.env.SUPER_ADMIN_EMAIL || 'superadmin@clinic.local',
-    password: process.env.SUPER_ADMIN_PASSWORD,
-    name: 'Super Admin',
-    role: 'super_admin' as AdminRole,
-    title: 'Clinic System Administrator',
-  }] : []),
-  {
-    id: 'user-doctor-1',
-    email: 'shivrajrbabar@gmail.com',
-    password: process.env.ADMIN_PASSWORD || 'Coinage@1790',
-    name: 'Dr. Mahesh Shete',
-    role: 'doctor',
-    title: 'Consulting Doctor (Full Clinical Access)',
-  },
   {
     id: 'user-doctor-2',
     email: 'doctor@gmail.com',
@@ -44,6 +31,17 @@ export const ADMIN_USERS: AdminUserConfig[] = [
     name: 'Front Desk Receptionist',
     role: 'receptionist',
     title: 'Front Desk & Patient Care Coordinator',
+  },
+  {
+    // Super Admin: role "admin" has access to everything, including the Doctors tab
+    // where doctors are added / edited. Set SUPERADMIN_EMAIL and SUPERADMIN_PASSWORD
+    // in .env.local to change these.
+    id: 'user-superadmin-1',
+    email: process.env.SUPERADMIN_EMAIL || 'superadmin@gmail.com',
+    password: process.env.SUPERADMIN_PASSWORD || 'Super@12345',
+    name: 'Super Admin',
+    role: 'admin',
+    title: 'Super Admin (Doctors & Full Access)',
   },
   {
     id: 'user-pharmacist-1',
@@ -164,10 +162,14 @@ export function verifyJwtToken(
   }
 }
 
-export function findUserByCredentials(email: string, password: string): AdminUserConfig | null {
+export async function findUserByCredentials(
+  email: string,
+  password: string
+): Promise<AdminUserConfig | null> {
   const cleanEmail = (email || '').trim().toLowerCase();
   const inputPass = String(password || '');
 
+  // 1. Built-in staff accounts (super admin, receptionist, pharmacist, ...)
   for (const user of ADMIN_USERS) {
     if (user.email.toLowerCase() === cleanEmail) {
       const inputPassBuf = Buffer.from(inputPass);
@@ -181,11 +183,28 @@ export function findUserByCredentials(email: string, password: string): AdminUse
     }
   }
 
+  // 2. Doctors added by the Super Admin (stored in the database, active only)
+  try {
+    const doctor = await verifyDoctorLogin(cleanEmail, inputPass);
+    if (doctor) {
+      return {
+        id: `doctor-${doctor.id}`,
+        email: doctor.email,
+        password: '',
+        name: doctor.name,
+        role: 'doctor',
+        title: doctor.specialization || 'Consulting Doctor',
+      };
+    }
+  } catch (err) {
+    console.error('Doctor login lookup failed:', err);
+  }
+
   return null;
 }
 
-export function validateAdminCredentials(email: string, password: string): boolean {
-  return findUserByCredentials(email, password) !== null;
+export async function validateAdminCredentials(email: string, password: string): Promise<boolean> {
+  return (await findUserByCredentials(email, password)) !== null;
 }
 
 export function generateAdminTokenPair(
@@ -311,7 +330,7 @@ export function verifyAdminRequest(
   // Role verification (if allowedRoles specified)
   if (allowedRoles && allowedRoles.length > 0) {
     const userRole = verifiedPayload.role || 'admin';
-    const isAllowed = allowedRoles.includes(userRole as AdminRole) || userRole === 'admin' || userRole === 'super_admin';
+    const isAllowed = allowedRoles.includes(userRole) || userRole === 'admin';
     if (!isAllowed) {
       return {
         authenticated: false,

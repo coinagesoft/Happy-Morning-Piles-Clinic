@@ -4,7 +4,6 @@ import {
   generateAdminTokenPair,
   setAuthCookies,
 } from '@/lib/adminAuth';
-import { findDatabaseDoctorByEmail, verifyStaffPassword } from '@/lib/multiDoctor';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,13 +19,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    let matchedUser = findUserByCredentials(String(email), String(password));
-    if (!matchedUser) {
-      const doctor = await findDatabaseDoctorByEmail(String(email));
-      if (doctor && Boolean(doctor.active) && verifyStaffPassword(String(password), String(doctor.password_hash))) {
-        matchedUser = { id: String(doctor.id), email: String(doctor.email), password: '', name: String(doctor.name), role: 'doctor', title: 'Doctor' };
-      }
-    }
+    const matchedUser = await findUserByCredentials(String(email), String(password));
     if (!matchedUser) {
       return NextResponse.json(
         { error: 'Invalid login credentials. Please check your email and password.' },

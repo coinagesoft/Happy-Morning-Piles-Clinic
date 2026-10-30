@@ -26,6 +26,10 @@ declare global {
   // eslint-disable-next-line no-var
   var __schemaInitialized: boolean | undefined;
   // eslint-disable-next-line no-var
+  var __schemaVersion: number | undefined;
+  // eslint-disable-next-line no-var
+  var __schemaPromiseVersion: number | undefined;
+  // eslint-disable-next-line no-var
   var __schemaPromise: Promise<void> | null | undefined;
 }
 
@@ -55,14 +59,23 @@ export function getPool(): mysql.Pool {
   return global.__mysqlPool;
 }
 
+/**
+ * Bump this whenever a table / column is added below. Next.js hot reload keeps the
+ * old "schema is ready" flag alive, so without a version a new column would only be
+ * created after a full server restart.
+ */
+const SCHEMA_VERSION = 4;
+
 export async function ensureDatabaseSchema(): Promise<void> {
-  if (global.__schemaInitialized) {
+  if (global.__schemaVersion === SCHEMA_VERSION) {
     return;
   }
 
-  if (global.__schemaPromise) {
+  if (global.__schemaPromise && global.__schemaPromiseVersion === SCHEMA_VERSION) {
     return global.__schemaPromise;
   }
+
+  global.__schemaPromiseVersion = SCHEMA_VERSION;
 
   const pool = getPool();
   global.__schemaPromise = (async () => {
@@ -174,10 +187,23 @@ export async function ensureDatabaseSchema(): Promise<void> {
   } catch {
     // Column might already exist
   }
-  try { await pool.execute(`ALTER TABLE appointments ADD COLUMN assigned_doctor_id VARCHAR(64) NULL`); } catch { /* already exists */ }
-  try { await pool.execute(`ALTER TABLE appointments ADD COLUMN assigned_by_user_id VARCHAR(64) NULL`); } catch { /* already exists */ }
-  try { await pool.execute(`ALTER TABLE appointments ADD COLUMN assigned_at VARCHAR(64) NULL`); } catch { /* already exists */ }
-  try { await pool.execute(`ALTER TABLE appointments ADD INDEX idx_appointment_doctor_date (assigned_doctor_id, appointment_date)`); } catch { /* already exists */ }
+
+  // Safe migrations: doctor assigned to an appointment
+  try {
+    await pool.execute(`ALTER TABLE appointments ADD COLUMN doctor_id VARCHAR(64) NULL`);
+  } catch {
+    // Column might already exist
+  }
+  try {
+    await pool.execute(`ALTER TABLE appointments ADD COLUMN doctor_name VARCHAR(255) NULL`);
+  } catch {
+    // Column might already exist
+  }
+  try {
+    await pool.execute(`ALTER TABLE appointments ADD INDEX idx_appt_doctor (doctor_id)`);
+  } catch {
+    // Index might already exist
+  }
 
   await pool.execute(`
     CREATE TABLE IF NOT EXISTS google_oauth_tokens (
@@ -257,8 +283,41 @@ export async function ensureDatabaseSchema(): Promise<void> {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
   `);
 
+  // One-time setup markers (e.g. "existing doctors were imported")
+  await pool.execute(`
+    CREATE TABLE IF NOT EXISTS app_flags (
+      flag_key VARCHAR(64) PRIMARY KEY,
+      created_at VARCHAR(64) NOT NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  `);
+
+  // Doctors managed by the Super Admin (each doctor gets their own login)
+  await pool.execute(`
+    CREATE TABLE IF NOT EXISTS doctors (
+      id VARCHAR(64) PRIMARY KEY,
+      name VARCHAR(255) NOT NULL,
+      email VARCHAR(255) NOT NULL UNIQUE,
+      password_hash VARCHAR(255) NOT NULL,
+      phone VARCHAR(32) NOT NULL DEFAULT '',
+      specialization VARCHAR(255) NOT NULL DEFAULT '',
+      qualification VARCHAR(255) NOT NULL DEFAULT '',
+      registration_no VARCHAR(100) NOT NULL DEFAULT '',
+      locations TEXT NULL,
+      is_active TINYINT(1) NOT NULL DEFAULT 1,
+      created_at VARCHAR(64) NOT NULL,
+      updated_at VARCHAR(64) NOT NULL,
+      INDEX idx_doctor_active (is_active)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  `);
+
   global.__schemaInitialized = true;
-  })();
+  global.__schemaVersion = SCHEMA_VERSION;
+  })().catch((err) => {
+    // Let the next request retry instead of caching the failure forever
+    global.__schemaPromise = null;
+    global.__schemaPromiseVersion = undefined;
+    throw err;
+  });
 
   return global.__schemaPromise;
 }

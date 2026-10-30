@@ -2,12 +2,13 @@ import { Appointment } from '@/lib/storage';
 import { DoctorOverride } from '@/lib/availability';
 
 import { Medicine } from '@/lib/medicines';
+import type { Doctor } from '@/lib/doctors';
 
-export type AdminTabType = 'overview' | 'appointments' | 'patients' | 'payments' | 'availability' | 'medicines' | 'team';
+export type AdminTabType = 'overview' | 'appointments' | 'patients' | 'payments' | 'availability' | 'medicines' | 'doctors';
 
-export type { Medicine };
+export type { Medicine, Doctor };
 
-export type AdminRole = 'super_admin' | 'admin' | 'doctor' | 'receptionist' | 'pharmacist';
+export type AdminRole = 'admin' | 'doctor' | 'receptionist' | 'pharmacist';
 
 export interface AdminUser {
   email: string;
