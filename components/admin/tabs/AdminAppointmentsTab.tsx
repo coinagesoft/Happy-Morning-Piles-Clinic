@@ -20,6 +20,7 @@ import {
 } from '@/components/admin/AdminIcons';
 import { AdminStats } from '@/components/admin/types';
 import { BOOKABLE_DOCTORS } from '@/lib/doctorsTeam';
+import DoctorBadge from '@/components/admin/DoctorBadge';
 
 interface AdminAppointmentsTabProps {
   userRole?: string;
@@ -507,6 +508,7 @@ export default function AdminAppointmentsTab({
                   <tr>
                     <th>Date &amp; Time</th>
                     <th>Mode</th>
+                    <th>Doctor</th>
                     <th>Patient Details</th>
                     <th>Health Concern</th>
                     <th>Status</th>
@@ -522,7 +524,6 @@ export default function AdminAppointmentsTab({
                           <strong>{appt.date}</strong>
                           <span>{appt.time}</span>
                           {appt.location && <small className="appt-location">📍 {appt.location}</small>}
-                          {appt.doctorName && <small className="appt-location">🩺 {appt.doctorName}</small>}
                         </div>
                       </td>
                       <td>
@@ -532,6 +533,9 @@ export default function AdminAppointmentsTab({
                         >
                           {appt.consultationType === 'offline' ? 'In-Clinic' : 'Online Meet'}
                         </span>
+                      </td>
+                      <td>
+                        <DoctorBadge slug={appt.doctorSlug} name={appt.doctorName} />
                       </td>
                       <td>
                         <div className="cell-patient">

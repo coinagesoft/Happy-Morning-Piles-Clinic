@@ -19,6 +19,7 @@ import {
 } from '@/lib/slots';
 import { CLINIC } from '@/lib/clinicInfo';
 import { BOOKABLE_DOCTORS } from '@/lib/doctorsTeam';
+import DoctorBadge from './DoctorBadge';
 
 const DEFAULT_SLOT_VALUES = generateSlots(DEFAULT_CLINIC_SETTINGS).map((s) => s.value);
 const DEFAULT_STEP = getSlotStep(DEFAULT_CLINIC_SETTINGS);
@@ -494,6 +495,12 @@ export default function AdminBookAppointmentModal({
                 </strong>
               </div>
               <div className="detail-row">
+                <span>Doctor:</span>
+                <strong>
+                  {BOOKABLE_DOCTORS.find((d) => d.slug === doctorSlug)?.name || 'Not assigned'}
+                </strong>
+              </div>
+              <div className="detail-row">
                 <span>Payment Settlement:</span>
                 <strong className="text-green">
                   {paymentMethod} • ₹{amount} ({paymentStatus.toUpperCase()})
@@ -706,6 +713,15 @@ export default function AdminBookAppointmentModal({
                     </option>
                   ))}
                 </select>
+                <div style={{ marginTop: 8 }}>
+                  {doctorSlug ? (
+                    <DoctorBadge slug={doctorSlug} />
+                  ) : (
+                    <small style={{ color: '#64748b' }}>
+                      No doctor selected. This booking will show as &quot;Not assigned&quot;.
+                    </small>
+                  )}
+                </div>
               </div>
 
               {/* 3. Reason for Visit */}

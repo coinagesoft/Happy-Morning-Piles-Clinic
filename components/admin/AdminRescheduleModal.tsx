@@ -6,6 +6,7 @@ import { DoctorOverride } from '@/lib/availability';
 import ThemedDatePicker from './ThemedDatePicker';
 import { toast } from '@/components/ui/Toast';
 import { useClinicSettings } from '@/lib/useClinicSettings';
+import DoctorBadge from './DoctorBadge';
 
 const RESCHEDULE_REASONS = [
   'Patient requested date/time change',
@@ -343,6 +344,9 @@ export default function AdminRescheduleModal({
                   </div>
                   <div className="rcc-reason">
                     <em>Concern:</em> {appointment.reason}
+                  </div>
+                  <div style={{ marginTop: 8 }}>
+                    <DoctorBadge slug={appointment.doctorSlug} name={appointment.doctorName} />
                   </div>
                 </div>
               </div>

@@ -5,6 +5,7 @@ import { Appointment } from '@/lib/storage';
 import { DoctorOverride } from '@/lib/availability';
 import { useClinicSettings } from '@/lib/useClinicSettings';
 import { areAllSlotsOccupied } from '@/lib/slots';
+import DoctorBadge from './DoctorBadge';
 
 interface AdminAppointmentCalendarProps {
   appointments: Appointment[];
@@ -345,12 +346,13 @@ export default function AdminAppointmentCalendar({
                             ? 'chip-offline'
                             : 'chip-online'
                         }`}
-                        title={`${appt.fullName} • ${appt.time} • ${
+                        title={`${appt.fullName} • ${appt.time} • Doctor: ${appt.doctorName || 'Not assigned'} • ${
                           isOffline ? 'In-Clinic (Offline)' : 'Online (Google Meet)'
                         } • Payment: ${appt.paymentMethod} (₹${appt.amount || 800})`}
                       >
                         <span className="chip-time">{appt.time}</span>
                         <strong className="chip-name">{appt.fullName}</strong>
+                        <DoctorBadge slug={appt.doctorSlug} name={appt.doctorName} variant="compact" />
                         {isOffline && (
                           <span className="chip-offline-tag">
                             {isCash ? 'Offline • Cash' : 'Offline'}

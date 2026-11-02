@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Appointment } from '@/lib/storage';
 import { PatientGroup } from '@/components/admin/types';
 import { toast } from '@/components/ui/Toast';
+import DoctorBadge from './DoctorBadge';
 import {
   IconCross,
   IconPhone,
@@ -237,6 +238,9 @@ export default function PatientHistoryModal({
                           <span className="concern-label">Concern</span>
                           <span className="concern-val">{appt.reason || '—'}</span>
                         </div>
+                        <div className="appt-item-doctor" style={{ marginTop: 6 }}>
+                          <DoctorBadge slug={appt.doctorSlug} name={appt.doctorName} variant="compact" />
+                        </div>
                         <div className="appt-item-notes-status">
                           <span className={`appt-mode-chip ${isOnline ? 'mode-online' : 'mode-clinic'}`}>
                             {isOnline ? 'Online' : 'Clinic'}
@@ -306,6 +310,8 @@ export default function PatientHistoryModal({
                           <span className="query-label">Health concern</span>
                           <span className="query-text">{selected.reason || '—'}</span>
                           {selected.message && <span className="query-text">{selected.message}</span>}
+                          <span className="query-label" style={{ display: 'block', marginTop: 10 }}>Doctor</span>
+                          <DoctorBadge slug={selected.doctorSlug} name={selected.doctorName} />
                         </div>
                         <div className="selected-appt-concern">
                           <span className="detail-tag-label">Status</span>
