@@ -2,6 +2,7 @@ import { google } from 'googleapis';
 import { CLINIC } from './clinicInfo';
 import { getCachedSlotDuration } from './clinicSettings';
 import { getAppUrl } from './appUrl';
+import { appointmentDoctorName } from './doctorsTeam';
 import {
   getGoogleTokens,
   ensureGoogleTokensLoaded,
@@ -118,7 +119,7 @@ export async function createCalendarMeeting(
 
   const summary = isOffline
     ? `[In-Clinic / Offline] Consultation: ${appointment.fullName} - ${CLINIC.name}`
-    : `[Online Video] Consultation: ${appointment.fullName} & ${CLINIC.doctor.name}`;
+    : `[Online Video] Consultation: ${appointment.fullName} & ${appointmentDoctorName(appointment)}`;
 
   const location = isOffline
     ? `${CLINIC.name}, ${CLINIC.address.full}`
@@ -159,7 +160,7 @@ Doctor Email: ${DOCTOR_EMAIL}`;
   const attendees: { email: string; displayName: string; responseStatus?: string }[] = [
     {
       email: DOCTOR_EMAIL,
-      displayName: `${CLINIC.doctor.name} (Doctor)`,
+      displayName: `${appointmentDoctorName(appointment)} (Doctor)`,
       responseStatus: 'accepted',
     },
   ];
@@ -266,7 +267,7 @@ export async function rescheduleCalendarMeeting(
 
   const summary = isOffline
     ? `[In-Clinic / Offline] Consultation: ${appointment.fullName} - ${CLINIC.name}`
-    : `Consultation: ${appointment.fullName} - ${CLINIC.doctor.name}`;
+    : `Consultation: ${appointment.fullName} - ${appointmentDoctorName(appointment)}`;
 
   const location = isOffline
     ? `${CLINIC.address.full}`
@@ -394,8 +395,8 @@ export function generateGoogleCalendarUrl(
   const isOffline = appointment.consultationType === 'offline';
 
   const title = isOffline
-    ? `[In-Clinic / Offline] Consultation: ${appointment.fullName} - ${CLINIC.doctor.name}`
-    : `[Online Video] Consultation: ${appointment.fullName} & ${CLINIC.doctor.name}`;
+    ? `[In-Clinic / Offline] Consultation: ${appointment.fullName} - ${appointmentDoctorName(appointment)}`
+    : `[Online Video] Consultation: ${appointment.fullName} & ${appointmentDoctorName(appointment)}`;
 
   const details = isOffline
     ? `IN-CLINIC / OFFLINE CONSULTATION (In-Person Clinic Visit)
@@ -463,7 +464,7 @@ export function generateIcsContent(
   const isOffline = appointment.consultationType === 'offline';
   const summary = isOffline
     ? `[In-Clinic / Offline] Consultation: ${appointment.fullName} - ${CLINIC.name}`
-    : `Online Video Consultation: ${appointment.fullName} & ${CLINIC.doctor.name}`;
+    : `Online Video Consultation: ${appointment.fullName} & ${appointmentDoctorName(appointment)}`;
 
   const location = isOffline
     ? `${CLINIC.name}, ${CLINIC.address.full}`
@@ -487,8 +488,8 @@ export function generateIcsContent(
     `SUMMARY:${summary}`,
     `DESCRIPTION:${description}`,
     `LOCATION:${location}`,
-    `ORGANIZER;CN=${CLINIC.doctor.name}:mailto:${DOCTOR_EMAIL}`,
-    `ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=ACCEPTED;CN=${CLINIC.doctor.name}:mailto:${DOCTOR_EMAIL}`,
+    `ORGANIZER;CN=${appointmentDoctorName(appointment)}:mailto:${DOCTOR_EMAIL}`,
+    `ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=ACCEPTED;CN=${appointmentDoctorName(appointment)}:mailto:${DOCTOR_EMAIL}`,
     `ATTENDEE;ROLE=REQ-PARTICIPANT;CN=${appointment.fullName}:mailto:${appointment.email}`,
     'STATUS:CONFIRMED',
     'END:VEVENT',

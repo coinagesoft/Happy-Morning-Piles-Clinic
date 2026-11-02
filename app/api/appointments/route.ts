@@ -35,6 +35,7 @@ import { isMsg91ConfirmationConfigured, sendMsg91WhatsApp } from '@/lib/msg91';
 import { isMailerConfigured, sendHtmlEmail } from '@/lib/mailer';
 import { formatDateLong, modeLabel, bookingConfirmationEmail } from '@/lib/reminderEmails';
 import { getAppUrl } from '@/lib/appUrl';
+import { getBookableDoctorBySlug, BOOKABLE_DOCTORS } from '@/lib/doctorsTeam';
 
 export const dynamic = 'force-dynamic';
 
@@ -43,10 +44,18 @@ export async function GET(request: NextRequest) {
   const date = searchParams.get('date');
   const bulk = searchParams.get('bulk') === 'true';
 
+  // Optional: availability for one doctor only (slots booked with other doctors stay free)
+  const doctorParam = searchParams.get('doctor')?.trim() || '';
+  const doctorForSlots = doctorParam ? getBookableDoctorBySlug(doctorParam) : undefined;
+  if (doctorParam && !doctorForSlots) {
+    return NextResponse.json({ error: 'Unknown doctor.' }, { status: 400 });
+  }
+  const doctorSlugForSlots = doctorForSlots?.slug;
+
   // If bulk requested or no single date specified, return whole calendar state in < 1ms
   if (bulk || !date) {
     const [bulkData, settings] = await Promise.all([
-      getBulkCalendarAvailability(),
+      getBulkCalendarAvailability(doctorSlugForSlots),
       getClinicSettings(),
     ]);
     const slotValues = generateSlots(settings).map((s) => s.value);
@@ -74,7 +83,7 @@ export async function GET(request: NextRequest) {
   const [doctorDateBlock, doctorBlockedSlots, dbBookedTimes] = await Promise.all([
     isDateBlockedByDoctor(date),
     getBlockedSlotsForDate(date, slotValues),
-    getBookedSlotsForDate(date),
+    getBookedSlotsForDate(date, doctorSlugForSlots),
   ]);
 
   // Booked times block neighbouring slots too (appointment duration + buffer)
@@ -116,12 +125,29 @@ export async function POST(request: NextRequest) {
       paymentId,
       paymentMethod,
       location: requestedLocation,
+      doctorSlug: requestedDoctorSlug,
     } = body;
 
     // Validation
     if (!fullName || typeof fullName !== 'string' || fullName.trim().length < 3) {
       return NextResponse.json(
         { error: 'Full name is required (minimum 3 characters).' },
+        { status: 400 }
+      );
+    }
+
+    // The patient must choose one of the clinic's bookable doctors.
+    const chosenDoctor = getBookableDoctorBySlug(
+      typeof requestedDoctorSlug === 'string' ? requestedDoctorSlug : ''
+    );
+    if (!chosenDoctor) {
+      return NextResponse.json(
+        {
+          error:
+            BOOKABLE_DOCTORS.length > 0
+              ? 'Please choose a doctor from the list before booking.'
+              : 'Online booking is currently unavailable.',
+        },
         { status: 400 }
       );
     }
@@ -276,12 +302,12 @@ export async function POST(request: NextRequest) {
     }
 
     // Check if slot is already booked in MySQL DB
-    const dbBooked = await isTimeSlotTaken(date, time);
+    const dbBooked = await isTimeSlotTaken(date, time, undefined, chosenDoctor.slug);
     if (dbBooked) {
       return NextResponse.json(
         {
           error:
-            `The time slot ${time} on ${date} is already booked. Please select another slot.`,
+            `The time slot ${time} on ${date} is already booked with ${chosenDoctor.name}. Please select another slot.`,
           isBooked: true,
         },
         { status: 409 }
@@ -308,6 +334,8 @@ export async function POST(request: NextRequest) {
       paidAt: new Date().toISOString(),
       notes: '',
       location: bookingLocation,
+      doctorSlug: chosenDoctor.slug,
+      doctorName: chosenDoctor.name,
     };
 
     let meetLink = '';

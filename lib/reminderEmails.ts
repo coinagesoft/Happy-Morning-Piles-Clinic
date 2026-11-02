@@ -1,5 +1,6 @@
 import { CLINIC } from './clinicInfo';
 import { formatSlotLabel } from './slots';
+import { appointmentDoctorName, appointmentDoctorRole } from './doctorsTeam';
 
 export interface ReminderAppointment {
   id: string;
@@ -12,6 +13,8 @@ export interface ReminderAppointment {
   time: string; // HH:mm
   meetLink?: string;
   consultationType: 'online' | 'offline';
+  doctorSlug?: string;
+  doctorName?: string;
   createdAt: string;
 }
 
@@ -91,7 +94,7 @@ export function patientReminderEmail(a: ReminderAppointment, lead: number, dayWo
     <p style="margin:0 0 12px">Hello ${esc(a.fullName)},</p>
     <p style="margin:0 0 16px">${esc(intro)}</p>
     <table style="border-collapse:collapse;width:100%;font-size:14px">
-      <tr><td style="padding:6px 0;color:#6b7280;width:120px">Doctor</td><td>${esc(CLINIC.doctor.name)}</td></tr>
+      <tr><td style="padding:6px 0;color:#6b7280;width:120px">Doctor</td><td>${esc(appointmentDoctorName(a))}</td></tr>
       <tr><td style="padding:6px 0;color:#6b7280">Date</td><td>${esc(dateLong)}</td></tr>
       <tr><td style="padding:6px 0;color:#6b7280">Time</td><td>${esc(time)}</td></tr>
       <tr><td style="padding:6px 0;color:#6b7280">Type</td><td>${esc(modeLabel(a))}</td></tr>
@@ -102,7 +105,7 @@ export function patientReminderEmail(a: ReminderAppointment, lead: number, dayWo
 
   const text =
     `Hello ${a.fullName},\n\n${intro}\n\n` +
-    `Doctor: ${CLINIC.doctor.name}\nDate: ${dateLong}\nTime: ${time}\nType: ${modeLabel(a)}\n` +
+    `Doctor: ${appointmentDoctorName(a)}\nDate: ${dateLong}\nTime: ${time}\nType: ${modeLabel(a)}\n` +
     `${locationDetail(a)}\n\nNeed to reschedule? Call ${CLINIC.phone.display}.\n\n${CLINIC.name}`;
 
   return { subject, html, text };
@@ -164,6 +167,7 @@ export function doctorDigestEmail(date: string, list: ReminderAppointment[]) {
         <td style="padding:8px 6px;white-space:nowrap"><strong>${esc(formatSlotLabel(a.time))}</strong></td>
         <td style="padding:8px 6px">${esc(a.fullName)}<br/><span style="color:#6b7280;font-size:12px">${esc(a.age)} yrs</span></td>
         <td style="padding:8px 6px">${esc(a.phone)}</td>
+        <td style="padding:8px 6px">${esc(appointmentDoctorName(a))}</td>
         <td style="padding:8px 6px">${esc(a.reason)}</td>
         <td style="padding:8px 6px">${a.consultationType === 'offline' ? 'In-clinic' : a.meetLink ? `<a href="${esc(a.meetLink)}">Online (Meet)</a>` : 'Online'}</td>
       </tr>`
@@ -176,7 +180,7 @@ export function doctorDigestEmail(date: string, list: ReminderAppointment[]) {
       : `<table style="border-collapse:collapse;width:100%;font-size:13px">
           <tr style="text-align:left;color:#6b7280">
             <th style="padding:6px">#</th><th style="padding:6px">Time</th><th style="padding:6px">Patient</th>
-            <th style="padding:6px">Phone</th><th style="padding:6px">Reason</th><th style="padding:6px">Type</th>
+            <th style="padding:6px">Phone</th><th style="padding:6px">Doctor</th><th style="padding:6px">Reason</th><th style="padding:6px">Type</th>
           </tr>${rows}
         </table>`;
 
@@ -193,7 +197,7 @@ export function doctorDigestEmail(date: string, list: ReminderAppointment[]) {
       : list
           .map(
             (a, i) =>
-              `${i + 1}. ${formatSlotLabel(a.time)} - ${a.fullName} (${a.age} yrs), ${a.phone}, ${a.reason}, ${a.consultationType === 'offline' ? 'In-clinic' : 'Online'}`
+              `${i + 1}. ${formatSlotLabel(a.time)} - ${a.fullName} (${a.age} yrs), ${a.phone}, ${appointmentDoctorName(a)}, ${a.reason}, ${a.consultationType === 'offline' ? 'In-clinic' : 'Online'}`
           )
           .join('\n'));
 
@@ -235,7 +239,7 @@ export function bookingConfirmationEmail(
     <p style="margin:0 0 16px">Thank you for booking with <strong>${esc(CLINIC.name)}</strong>. Your appointment has been scheduled successfully.</p>
     
     <table style="border-collapse:collapse;width:100%;font-size:14px;margin-bottom:16px">
-      <tr><td style="padding:6px 0;color:#6b7280;width:120px">Doctor</td><td><strong>${esc(CLINIC.doctor.name)}</strong> (${esc(CLINIC.doctor.title)})</td></tr>
+      <tr><td style="padding:6px 0;color:#6b7280;width:120px">Doctor</td><td><strong>${esc(appointmentDoctorName(a))}</strong> (${esc(appointmentDoctorRole(a))})</td></tr>
       <tr><td style="padding:6px 0;color:#6b7280">Date</td><td><strong>${esc(dateLong)}</strong></td></tr>
       <tr><td style="padding:6px 0;color:#6b7280">Time</td><td><strong>${esc(time)}</strong></td></tr>
       <tr><td style="padding:6px 0;color:#6b7280">Type</td><td>${esc(modeLabel(a))}</td></tr>
@@ -252,7 +256,7 @@ export function bookingConfirmationEmail(
 
   const text =
     `Dear ${a.fullName},\n\nYour appointment with ${CLINIC.name} is confirmed!\n\n` +
-    `Doctor: ${CLINIC.doctor.name}\nDate: ${dateLong}\nTime: ${time}\nConsultation: ${modeLabel(a)}\n` +
+    `Doctor: ${appointmentDoctorName(a)}\nDate: ${dateLong}\nTime: ${time}\nConsultation: ${modeLabel(a)}\n` +
     `${online ? `Meet Link: ${a.meetLink || 'Will be shared shortly'}` : `Clinic Address: ${a.location || CLINIC.address.full}`}\n\n` +
     `Contact: ${CLINIC.phone.display}\nWebsite: ${appUrl}\n\n${CLINIC.name}`;
 

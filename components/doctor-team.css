@@ -89,6 +89,22 @@
   height: fit-content;
 }
 
+.team-book-btn {
+  display: block;
+  margin-top: 14px;
+  padding: 11px 16px;
+  border-radius: 999px;
+  background: var(--secondary);
+  color: #ffffff;
+  font-size: .86rem;
+  font-weight: 700;
+  text-align: center;
+  text-decoration: none;
+  transition: filter .15s ease, transform .15s ease;
+}
+.team-book-btn:hover { filter: brightness(1.06); transform: translateY(-1px); }
+.team-book-btn:focus-visible { outline: 3px solid var(--primary-light); outline-offset: 2px; }
+
 @media (max-width: 1200px) {
   .team-card { flex-basis: calc((100% - 48px) / 3); max-width: calc((100% - 48px) / 3); }
 }

@@ -34,6 +34,10 @@ export interface Appointment {
   consultationType?: 'online' | 'offline';
   /** Where the doctor is sitting for this appointment (from the day-wise schedule). */
   location?: string;
+  /** Doctor the patient chose (slug from lib/doctorsTeam.ts). Empty on older bookings. */
+  doctorSlug?: string;
+  /** Doctor's display name, saved with the booking so history stays correct. */
+  doctorName?: string;
 }
 
 interface AppointmentRow extends RowDataPacket {
@@ -57,6 +61,8 @@ interface AppointmentRow extends RowDataPacket {
   notes: string | null;
   consultation_type?: 'online' | 'offline' | null;
   location?: string | null;
+  doctor_slug?: string | null;
+  doctor_name?: string | null;
   created_at: string;
 }
 
@@ -90,6 +96,8 @@ function mapRowToAppointment(row: AppointmentRow): Appointment {
     notes: row.notes || '',
     consultationType: isOffline ? 'offline' : 'online',
     location: row.location || undefined,
+    doctorSlug: row.doctor_slug || undefined,
+    doctorName: row.doctor_name || undefined,
   };
 }
 
@@ -201,8 +209,9 @@ export async function saveAppointment(appointment: Appointment): Promise<Appoint
     `INSERT INTO appointments (
       id, full_name, phone, email, age, reason,
       appointment_date, appointment_time, message, meet_link, google_event_id,
-      status, payment_status, amount, payment_method, payment_id, paid_at, notes, consultation_type, location, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      status, payment_status, amount, payment_method, payment_id, paid_at, notes, consultation_type, location,
+      doctor_slug, doctor_name, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON DUPLICATE KEY UPDATE
       full_name = VALUES(full_name),
       phone = VALUES(phone),
@@ -222,7 +231,9 @@ export async function saveAppointment(appointment: Appointment): Promise<Appoint
       paid_at = VALUES(paid_at),
       notes = VALUES(notes),
       consultation_type = VALUES(consultation_type),
-      location = VALUES(location)`,
+      location = VALUES(location),
+      doctor_slug = VALUES(doctor_slug),
+      doctor_name = VALUES(doctor_name)`,
     [
       appointment.id,
       appointment.fullName,
@@ -244,6 +255,8 @@ export async function saveAppointment(appointment: Appointment): Promise<Appoint
       notes,
       consultationType,
       appointment.location || null,
+      appointment.doctorSlug || null,
+      appointment.doctorName || null,
       appointment.createdAt,
     ]
   );
@@ -315,20 +328,21 @@ export async function deleteAppointment(id: string): Promise<boolean> {
   return true;
 }
 
-export async function getBookedSlotsForDate(date: string): Promise<string[]> {
-  return getFastBookedSlotsForDate(date);
+export async function getBookedSlotsForDate(date: string, doctorSlug?: string): Promise<string[]> {
+  return getFastBookedSlotsForDate(date, doctorSlug);
 }
 
-export async function isSlotBooked(date: string, time: string): Promise<boolean> {
-  return isFastSlotBooked(date, time);
+export async function isSlotBooked(date: string, time: string, doctorSlug?: string): Promise<boolean> {
+  return isFastSlotBooked(date, time, doctorSlug);
 }
 
 export async function isSlotBookedExcluding(
   date: string,
   time: string,
-  excludeId: string
+  excludeId: string,
+  doctorSlug?: string
 ): Promise<boolean> {
-  return isFastSlotBookedExcluding(date, time, excludeId);
+  return isFastSlotBookedExcluding(date, time, excludeId, doctorSlug);
 }
 
 export async function ensureGoogleTokensLoaded(): Promise<Credentials | null> {

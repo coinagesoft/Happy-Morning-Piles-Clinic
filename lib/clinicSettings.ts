@@ -1,6 +1,6 @@
 import type { RowDataPacket } from 'mysql2/promise';
 import { getPool, ensureDatabaseSchema } from './db';
-import { getFastAppointments } from './cache';
+import { getFastAppointments, appointmentBlocksDoctor } from './cache';
 import {
   ClinicSettings,
   DEFAULT_CLINIC_SETTINGS,
@@ -148,12 +148,19 @@ export async function getClinicSlotValues(): Promise<string[]> {
 export async function isTimeSlotTaken(
   date: string,
   time: string,
-  excludeId?: string
+  excludeId?: string,
+  doctorSlug?: string
 ): Promise<boolean> {
   const [settings, appointments] = await Promise.all([getClinicSettings(), getFastAppointments()]);
   const step = getSlotStep(settings);
   const times = appointments
-    .filter((a) => a.date === date && a.status !== 'cancelled' && a.id !== excludeId)
+    .filter(
+      (a) =>
+        a.date === date &&
+        a.status !== 'cancelled' &&
+        a.id !== excludeId &&
+        appointmentBlocksDoctor(a, doctorSlug)
+    )
     .map((a) => a.time);
   return isSlotConflicting(time, times, step);
 }

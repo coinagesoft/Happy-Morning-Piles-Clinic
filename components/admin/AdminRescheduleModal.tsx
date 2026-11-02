@@ -101,11 +101,14 @@ export default function AdminRescheduleModal({
   useEffect(() => {
     if (!appointment || !newDate) return;
     let isCancelled = false;
+    const doctorSlug = appointment.doctorSlug;
 
     async function fetchSlots() {
       setIsLoadingSlots(true);
       try {
-        const res = await fetch(`/api/appointments?date=${newDate}`);
+        const res = await fetch(
+          `/api/appointments?date=${newDate}${doctorSlug ? `&doctor=${encodeURIComponent(doctorSlug)}` : ''}`
+        );
         if (res.ok) {
           const data = await res.json();
           if (!isCancelled) {

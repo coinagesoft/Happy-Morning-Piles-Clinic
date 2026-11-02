@@ -2,6 +2,8 @@
  * Clinic team shown on the About page.
  * Edit here once to update names, photos, credentials and short intros.
  */
+import { CLINIC } from './clinicInfo';
+
 export type TeamMember = {
   slug: string;
   name: string;
@@ -11,6 +13,8 @@ export type TeamMember = {
   credentials: string[];
   /** Short intro shown on the card */
   summary: string;
+  /** Patients can book this doctor online. Defaults to true; set false to hide from booking. */
+  bookable?: boolean;
 };
 
 export const TEAM: TeamMember[] = [
@@ -60,3 +64,28 @@ export const TEAM: TeamMember[] = [
       'Helps patients restore mobility, relieve pain and regain strength through personalised, evidence-based rehabilitation.',
   },
 ];
+
+/** Doctors a patient can choose while booking an appointment. */
+export const BOOKABLE_DOCTORS: TeamMember[] = TEAM.filter((m) => m.bookable !== false);
+
+export function getDoctorBySlug(slug?: string | null): TeamMember | undefined {
+  if (!slug) return undefined;
+  const clean = String(slug).trim().toLowerCase();
+  return TEAM.find((m) => m.slug.toLowerCase() === clean);
+}
+
+export function getBookableDoctorBySlug(slug?: string | null): TeamMember | undefined {
+  const doc = getDoctorBySlug(slug);
+  return doc && doc.bookable !== false ? doc : undefined;
+}
+
+/** Doctor name to show for an appointment; older bookings (no doctor saved) show the clinic's main doctor. */
+export function appointmentDoctorName(a: { doctorName?: string | null }): string {
+  return (a.doctorName && a.doctorName.trim()) || CLINIC.doctor.name;
+}
+
+/** Doctor's role line for an appointment (credentials line in emails). */
+export function appointmentDoctorRole(a: { doctorSlug?: string | null; doctorName?: string | null }): string {
+  const doc = getDoctorBySlug(a.doctorSlug);
+  return doc ? doc.role : CLINIC.doctor.title;
+}

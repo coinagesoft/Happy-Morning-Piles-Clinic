@@ -4,10 +4,14 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import CalendarPicker from './CalendarPicker';
 import { toast } from '@/components/ui/Toast';
 import { useClinicSettings } from '@/lib/useClinicSettings';
+import Image from 'next/image';
 import { formatSlotLabel } from '@/lib/slots';
+import { BOOKABLE_DOCTORS } from '@/lib/doctorsTeam';
 import './booking.css';
+import './booking-doctor.css';
 
 interface FormData {
+  doctorSlug: string;
   location: string;
   fullName: string;
   phone: string;
@@ -27,6 +31,7 @@ interface ConfirmedBooking {
   time: string;
   reason: string;
   location?: string;
+  doctorName?: string;
   paymentId?: string;
   amount?: number;
   meetLink?: string;
@@ -117,6 +122,7 @@ function loadRazorpayCheckoutScript(): Promise<boolean> {
 export default function AppointmentForm() {
   const clinic = useClinicSettings();
   const [formData, setFormData] = useState<FormData>({
+    doctorSlug: '',
     location: '',
     fullName: '',
     phone: '',
@@ -127,6 +133,11 @@ export default function AppointmentForm() {
     time: '',
     message: '',
   });
+
+  // Latest chosen doctor, readable from timers/effects that captured an older render
+  const doctorSlugRef = useRef('');
+  doctorSlugRef.current = formData.doctorSlug;
+  const selectedDoctor = BOOKABLE_DOCTORS.find((d) => d.slug === formData.doctorSlug);
 
   const [bookingStep, setBookingStep] = useState<1 | 2>(1);
   const [errors, setErrors] = useState<Partial<Record<keyof FormData, string>>>({});
@@ -169,6 +180,7 @@ export default function AppointmentForm() {
   const [googleMessage, setGoogleMessage] = useState<string | null>(null);
 
   const successBoxRef = useRef<HTMLDivElement>(null);
+  const doctorSectionRef = useRef<HTMLDivElement>(null);
   const locationSectionRef = useRef<HTMLDivElement>(null);
   const calendarSectionRef = useRef<HTMLDivElement>(null);
   const slotSectionRef = useRef<HTMLDivElement>(null);
@@ -179,6 +191,13 @@ export default function AppointmentForm() {
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
+      const doctorFromUrl = (params.get('doctor') || '').trim().toLowerCase();
+      const preselected =
+        BOOKABLE_DOCTORS.find((d) => d.slug.toLowerCase() === doctorFromUrl) ||
+        (BOOKABLE_DOCTORS.length === 1 ? BOOKABLE_DOCTORS[0] : undefined);
+      if (preselected) {
+        setFormData((prev) => (prev.doctorSlug ? prev : { ...prev, doctorSlug: preselected.slug }));
+      }
       if (params.get('google_connected') === 'true') {
         setGoogleMessage('Google Calendar successfully connected!');
       } else if (params.get('google_error')) {
@@ -191,6 +210,12 @@ export default function AppointmentForm() {
     preloadBulkCalendar();
     loadRazorpayCheckoutScript();
   }, []);
+
+  // Each doctor has their own booked slots, so reload them when the patient switches doctor
+  useEffect(() => {
+    if (formData.doctorSlug) preloadBulkCalendar();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formData.doctorSlug]);
 
   // Keep an already-open booking page in sync with doctor blackouts set in admin.
   useEffect(() => {
@@ -212,13 +237,18 @@ export default function AppointmentForm() {
   }, []);
 
   const preloadBulkCalendar = () => {
-    fetch(`/api/appointments?bulk=true&t=${Date.now()}`, { cache: 'no-store' })
+    const doctor = doctorSlugRef.current;
+    fetch(
+      `/api/appointments?bulk=true&t=${Date.now()}${doctor ? `&doctor=${encodeURIComponent(doctor)}` : ''}`,
+      { cache: 'no-store' }
+    )
       .then((res) => res.json())
       .then((data) => {
         if (Array.isArray(data.blockedDates)) {
           setDoctorBlockedDates(data.blockedDates);
         }
-        if (data.bookedSlotsByDate) {
+        // Booked slots are per doctor, so they are only used once a doctor is chosen
+        if (doctor && doctor === doctorSlugRef.current && data.bookedSlotsByDate) {
           const docSlotsByDate = data.doctorBlockedSlotsByDate || {};
           const fullLeaves = new Set((data.blockedDates || []).map((b: { date: string }) => b.date));
 
@@ -226,7 +256,7 @@ export default function AppointmentForm() {
             const booked = data.bookedSlotsByDate[d] || [];
             const docBlocked = docSlotsByDate[d] || [];
             const isDocBlocked = fullLeaves.has(d);
-            slotsCacheRef.current.set(d, {
+            slotsCacheRef.current.set(`${doctor}|${d}`, {
               bookedSlots: Array.from(new Set([...booked, ...docBlocked])),
               doctorBlockedSlots: docBlocked,
               isDoctorBlocked: isDocBlocked,
@@ -235,8 +265,8 @@ export default function AppointmentForm() {
           });
 
           // If current form date is already in cache, set immediately
-          if (formData.date && slotsCacheRef.current.has(formData.date)) {
-            const initialSlot = slotsCacheRef.current.get(formData.date)!;
+          if (formData.date && slotsCacheRef.current.has(`${doctor}|${formData.date}`)) {
+            const initialSlot = slotsCacheRef.current.get(`${doctor}|${formData.date}`)!;
             setServerBookedSlots(initialSlot.bookedSlots);
             setDoctorBlockedSlots(initialSlot.doctorBlockedSlots);
             setIsDoctorDateBlocked(initialSlot.isDoctorBlocked);
@@ -300,6 +330,14 @@ export default function AppointmentForm() {
     setErrors((prev) => ({ ...prev, location: '', date: '', time: '' }));
   };
 
+  // Patient picks a doctor first; slots then show only that doctor's availability
+  const handleDoctorSelect = (slug: string) => {
+    if (slug === formData.doctorSlug) return;
+    setServerBookedSlots([]);
+    setFormData((prev) => ({ ...prev, doctorSlug: slug, time: '' }));
+    setErrors((prev) => ({ ...prev, doctorSlug: '', time: '' }));
+  };
+
   // With a single location there is nothing to choose, so it is selected automatically
   useEffect(() => {
     if (clinic.isLoaded && !formData.location && clinic.bookableLocations.length === 1) {
@@ -311,7 +349,7 @@ export default function AppointmentForm() {
   // Fetch booked slots whenever the selected date changes (instant 0ms from cache)
   const fetchBookedSlots = React.useCallback((dateString: string) => {
     if (!dateString) return;
-    if (!formData.location || clinic.isClosedOn(dateString, formData.location)) {
+    if (!formData.doctorSlug || !formData.location || clinic.isClosedOn(dateString, formData.location)) {
       setServerBookedSlots([]);
       setDoctorBlockedSlots([]);
       setIsDoctorDateBlocked(false);
@@ -319,8 +357,11 @@ export default function AppointmentForm() {
       return;
     }
 
+    const requestedDoctor = formData.doctorSlug;
+    const cacheKey = `${requestedDoctor}|${dateString}`;
+
     // Check fast cache first (< 0.1ms instant UI)
-    const cached = slotsCacheRef.current.get(dateString);
+    const cached = slotsCacheRef.current.get(cacheKey);
     if (cached) {
       setServerBookedSlots(cached.bookedSlots);
       setDoctorBlockedSlots(cached.doctorBlockedSlots);
@@ -331,7 +372,7 @@ export default function AppointmentForm() {
     }
 
     setIsLoadingSlots(true);
-    fetch(`/api/appointments?date=${dateString}`)
+    fetch(`/api/appointments?date=${dateString}&doctor=${encodeURIComponent(requestedDoctor)}`)
       .then((res) => res.json())
       .then((data) => {
         const slotData = {
@@ -340,7 +381,9 @@ export default function AppointmentForm() {
           isDoctorBlocked: Boolean(data.isDoctorBlocked),
           doctorBlockReason: data.doctorBlockReason || '',
         };
-        slotsCacheRef.current.set(dateString, slotData);
+        slotsCacheRef.current.set(cacheKey, slotData);
+        // Ignore late answers if the patient has already switched to another doctor
+        if (doctorSlugRef.current !== requestedDoctor) return;
         setServerBookedSlots(slotData.bookedSlots);
         setDoctorBlockedSlots(slotData.doctorBlockedSlots);
         setIsDoctorDateBlocked(slotData.isDoctorBlocked);
@@ -349,7 +392,7 @@ export default function AppointmentForm() {
       .catch((err) => console.error('Failed to load booked slots:', err))
       .finally(() => setIsLoadingSlots(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clinic.settings, formData.location]);
+  }, [clinic.settings, formData.location, formData.doctorSlug]);
 
   useEffect(() => {
     if (formData.date) {
@@ -365,6 +408,9 @@ export default function AppointmentForm() {
     const trimmed = value.trim();
 
     switch (name) {
+      case 'doctorSlug':
+        return trimmed ? '' : 'Please choose your doctor.';
+
       case 'location':
         return trimmed ? '' : 'Please choose a clinic location.';
 
@@ -528,7 +574,9 @@ export default function AppointmentForm() {
     if (firstInvalidKey) {
       const errorMsg = newErrors[firstInvalidKey] || 'Please check and complete all required fields.';
       toast.warning(errorMsg, 'Required Information');
-      if (firstInvalidKey === 'location') {
+      if (firstInvalidKey === 'doctorSlug') {
+        doctorSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      } else if (firstInvalidKey === 'location') {
         locationSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       } else if (firstInvalidKey === 'time') {
         slotSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -545,7 +593,7 @@ export default function AppointmentForm() {
     setIsCheckingSlot(true);
     try {
       const res = await fetch(
-        `/api/appointments?date=${formData.date}&location=${encodeURIComponent(formData.location)}`
+        `/api/appointments?date=${formData.date}&location=${encodeURIComponent(formData.location)}&doctor=${encodeURIComponent(formData.doctorSlug)}`
       );
       const data = await res.json();
       if (data.isDoctorBlocked) {
@@ -637,6 +685,7 @@ export default function AppointmentForm() {
         time: result.appointment.time,
         reason: result.appointment.reason,
         location: result.appointment.location,
+        doctorName: result.appointment.doctorName || selectedDoctor?.name,
         paymentId: result.appointment.paymentId || razorpayPaymentId,
         amount: result.appointment.amount || CONSULTATION_FEE_INR,
         meetLink: result.meetLink,
@@ -650,6 +699,7 @@ export default function AppointmentForm() {
 
       // Reset form fields
       setFormData({
+        doctorSlug: formData.doctorSlug,
         location: formData.location,
         fullName: '',
         phone: '',
@@ -714,6 +764,7 @@ export default function AppointmentForm() {
         appointment_date: formData.date,
         appointment_time: formData.time,
         location: formData.location,
+        doctor: selectedDoctor?.name || formData.doctorSlug,
       },
       theme: {
         color: '#565ACF',
@@ -760,7 +811,9 @@ export default function AppointmentForm() {
   const dateIsBookable =
     !!formData.date && !isSunday && !isDoctorDateBlocked && (!tomorrowIso || formData.date >= tomorrowIso);
 
-  const slotNote = !formData.location
+  const slotNote = !formData.doctorSlug
+    ? 'Choose your doctor first to see available times.'
+    : !formData.location
     ? 'Choose a location first to see available times.'
     : !formData.date
     ? 'Select a date to see available times.'
@@ -804,6 +857,11 @@ export default function AppointmentForm() {
                     {' '}at <strong>{confirmedBooking.location}</strong>
                   </>
                 ) : null}
+                {confirmedBooking.doctorName ? (
+                  <>
+                    {' '}with <strong>{confirmedBooking.doctorName}</strong>
+                  </>
+                ) : null}
                 .
               </p>
               <div className="notice-success">
@@ -820,7 +878,7 @@ export default function AppointmentForm() {
         <div className="bk-top">
           <div>
             <h2>Schedule your consultation</h2>
-            <p>Pick a location, date and time first, then tell us a little about you.</p>
+            <p>Pick your doctor, location, date and time first, then tell us a little about you.</p>
           </div>
           <div className="bk-top-meta">
             {/* <span>
@@ -837,10 +895,54 @@ export default function AppointmentForm() {
         <form id="appointment-form" className="bk-form" noValidate ref={formRef} onSubmit={handlePayAndBookSubmit}>
           <div className="bk-cols">
             <div className="bk-panel bk-panel-when">
-            {/* 1. LOCATION */}
-            <section className={`bk-loc ${errors.location ? 'invalid' : ''}`} ref={locationSectionRef}>
+            {/* 1. DOCTOR */}
+            <section className={`bk-loc bk-doc ${errors.doctorSlug ? 'invalid' : ''}`} ref={doctorSectionRef}>
               <header className="bk-col-head">
                 <span className="bk-step">1</span>
+                <div>
+                  <h2>Choose your doctor</h2>
+                  <p>Your appointment is booked under the doctor you select.</p>
+                </div>
+              </header>
+
+              <div className="bk-doc-options" role="radiogroup" aria-label="Doctor">
+                {BOOKABLE_DOCTORS.map((doc) => {
+                  const isSelected = formData.doctorSlug === doc.slug;
+                  return (
+                    <button
+                      key={doc.slug}
+                      type="button"
+                      role="radio"
+                      aria-checked={isSelected}
+                      className={`bk-doc-option ${isSelected ? 'is-selected' : ''}`}
+                      disabled={isBusy}
+                      onClick={() => handleDoctorSelect(doc.slug)}
+                    >
+                      <span className="bk-doc-photo">
+                        <Image src={doc.photo} alt="" width={96} height={96} unoptimized />
+                      </span>
+                      <span className="bk-doc-text">
+                        <strong>{doc.name}</strong>
+                        <small>{doc.role}</small>
+                      </span>
+                      {isSelected ? <span className="bk-doc-check" aria-hidden="true">✓</span> : null}
+                    </button>
+                  );
+                })}
+              </div>
+              <input type="hidden" name="doctorSlug" value={formData.doctorSlug} />
+
+              {errors.doctorSlug && (
+                <p className="bk-col-error" id="doctorSlug-error">
+                  {errors.doctorSlug}
+                </p>
+              )}
+            </section>
+
+            {/* 2. LOCATION */}
+            <section className={`bk-loc ${errors.location ? 'invalid' : ''}`} ref={locationSectionRef}>
+              <header className="bk-col-head">
+                <span className="bk-step">2</span>
                 <div>
                   <h2>Choose a location</h2>
                   <p>Where would you like to meet the doctor?</p>
@@ -891,14 +993,14 @@ export default function AppointmentForm() {
             {/* 1. DATE */}
             <section className={`bk-col bk-col-date ${errors.date ? 'invalid' : ''}`} ref={calendarSectionRef}>
               <header className="bk-col-head">
-                <span className="bk-step">2</span>
+                <span className="bk-step">3</span>
                 <div>
                   <h2>Choose a date</h2>
-                  <p>{formData.location ? `Days the doctor sits at ${formData.location}` : "Doctor's visiting days, from tomorrow onwards"}</p>
+                  <p>{formData.location ? `Days ${selectedDoctor ? selectedDoctor.name : 'the doctor'} sits at ${formData.location}` : "Doctor's visiting days, from tomorrow onwards"}</p>
                 </div>
               </header>
 
-              {formData.location ? (
+              {formData.doctorSlug && formData.location ? (
                 <CalendarPicker
                   selectedDate={formData.date}
                   onSelectDate={handleCalendarDateSelect}
@@ -913,7 +1015,7 @@ export default function AppointmentForm() {
                     <path d="M21 10c0 7-9 13-9 13S3 17 3 10a9 9 0 0 1 18 0z" />
                     <circle cx="12" cy="10" r="3" />
                   </svg>
-                  <span>Choose a location to see its available dates</span>
+                  <span>{formData.doctorSlug ? 'Choose a location to see its available dates' : 'Choose your doctor to see available dates'}</span>
                 </div>
               )}
               <input type="hidden" name="date" value={formData.date} />
@@ -928,7 +1030,7 @@ export default function AppointmentForm() {
             {/* 2. TIME */}
             <section className={`bk-col bk-col-time ${errors.time ? 'invalid' : ''}`} ref={slotSectionRef}>
               <header className="bk-col-head">
-                <span className="bk-step">3</span>
+                <span className="bk-step">4</span>
                 <div>
                   <h2>Choose a time</h2>
                   <p id="slot-date-note">{slotNote}</p>
@@ -988,7 +1090,9 @@ export default function AppointmentForm() {
                     <line x1="3" y1="10" x2="21" y2="10" />
                   </svg>
                   <span>
-                    {!formData.location
+                    {!formData.doctorSlug
+                      ? 'Choose your doctor to see time slots'
+                      : !formData.location
                       ? 'Choose a location to see its time slots'
                       : isDoctorDateBlocked
                       ? 'Doctor unavailable on this date'
@@ -1009,7 +1113,7 @@ export default function AppointmentForm() {
             {/* 3. DETAILS */}
             <section className="bk-panel bk-panel-details bk-col-details">
               <header className="bk-col-head">
-                <span className="bk-step">4</span>
+                <span className="bk-step">5</span>
                 <div>
                   <h2>Your details</h2>
                   <p>All fields required except the message</p>
@@ -1025,6 +1129,7 @@ export default function AppointmentForm() {
                     <span>
                       <strong>{shortDate}</strong> at <strong>{selectedSlotLabel}</strong>
                       {selectedLocation ? <> &middot; {selectedLocation}</> : null}
+                      {selectedDoctor ? <> &middot; {selectedDoctor.name}</> : null}
                     </span>
                   </>
                 ) : (

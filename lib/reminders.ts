@@ -188,13 +188,15 @@ interface ApptRow extends RowDataPacket {
   appointment_time: string;
   meet_link: string | null;
   consultation_type: string | null;
+  doctor_slug?: string | null;
+  doctor_name?: string | null;
   created_at: string;
 }
 
 async function loadConfirmed(dates: string[]): Promise<ReminderAppointment[]> {
   const [rows] = await getPool().execute<ApptRow[]>(
     `SELECT id, full_name, phone, email, age, reason, appointment_date, appointment_time,
-            meet_link, consultation_type, created_at
+            meet_link, consultation_type, doctor_slug, doctor_name, created_at
        FROM appointments
       WHERE status = 'confirmed' AND appointment_date IN (${dates.map(() => '?').join(',')})
       ORDER BY appointment_date, appointment_time`,
@@ -211,6 +213,8 @@ async function loadConfirmed(dates: string[]): Promise<ReminderAppointment[]> {
     time: r.appointment_time,
     meetLink: r.meet_link || undefined,
     consultationType: r.consultation_type === 'offline' ? 'offline' : 'online',
+    doctorSlug: r.doctor_slug || undefined,
+    doctorName: r.doctor_name || undefined,
     createdAt: r.created_at,
   }));
 }

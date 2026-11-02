@@ -19,6 +19,7 @@ import {
   IconPill,
 } from '@/components/admin/AdminIcons';
 import { AdminStats } from '@/components/admin/types';
+import { BOOKABLE_DOCTORS } from '@/lib/doctorsTeam';
 
 interface AdminAppointmentsTabProps {
   userRole?: string;
@@ -78,12 +79,15 @@ export default function AdminAppointmentsTab({
   onDeleteAppointment,
 }: AdminAppointmentsTabProps) {
   const [sortBy, setSortBy] = React.useState<'latest' | 'oldest' | 'name' | 'amount'>('latest');
+  // 'all' | 'unassigned' (older bookings with no doctor) | a doctor slug
+  const [doctorFilter, setDoctorFilter] = React.useState('all');
 
   const hasActiveFilters =
     Boolean(searchQuery.trim()) ||
     statusFilter !== 'all' ||
     timeFilter !== 'all' ||
     modeFilter !== 'all' ||
+    doctorFilter !== 'all' ||
     sortBy !== 'latest';
 
   // Group appointments by unique email (or phone/id if no email)
@@ -177,6 +181,7 @@ export default function AdminAppointmentsTab({
           a.phone.includes(q) ||
           a.email.toLowerCase().includes(q) ||
           a.reason.toLowerCase().includes(q) ||
+          (a.doctorName && a.doctorName.toLowerCase().includes(q)) ||
           (a.paymentId && a.paymentId.toLowerCase().includes(q)) ||
           a.allBookings.some(
             (b) =>
@@ -202,6 +207,31 @@ export default function AdminAppointmentsTab({
     if (modeFilter !== 'all') {
       result = result.filter((a) => a.consultationType === modeFilter);
     }
+    if (doctorFilter !== 'all') {
+      // Rows are grouped per patient, so show each patient's latest booking with the chosen doctor
+      result = result.flatMap((a) => {
+        const matches = a.allBookings.filter((b) =>
+          doctorFilter === 'unassigned' ? !b.doctorSlug : b.doctorSlug === doctorFilter
+        );
+        if (matches.length === 0) return [];
+        const latest = [...matches].sort((x, y) =>
+          `${y.date}T${y.time}`.localeCompare(`${x.date}T${x.time}`)
+        )[0];
+        return [
+          {
+            ...a,
+            ...latest,
+            fullName: a.fullName,
+            phone: a.phone,
+            age: a.age,
+            totalBookingsCount: a.totalBookingsCount,
+            isRepeatPatient: a.isRepeatPatient,
+            allBookings: a.allBookings,
+            firstBooking: a.firstBooking,
+          },
+        ];
+      });
+    }
 
     // Sort order
     result.sort((a, b) => {
@@ -215,13 +245,14 @@ export default function AdminAppointmentsTab({
     });
 
     return result;
-  }, [deduplicatedAppointments, searchQuery, statusFilter, timeFilter, modeFilter, sortBy]);
+  }, [deduplicatedAppointments, searchQuery, statusFilter, timeFilter, modeFilter, doctorFilter, sortBy]);
 
   const handleResetFilters = () => {
     setSearchQuery('');
     setStatusFilter('all');
     setTimeFilter('all');
     setModeFilter('all');
+    setDoctorFilter('all');
     setSortBy('latest');
   };
 
@@ -323,6 +354,27 @@ export default function AdminAppointmentsTab({
               <option value="all">All Modes ({appointments.length})</option>
               <option value="offline">In-Clinic (Offline)</option>
               <option value="online">Online (Google Meet)</option>
+            </select>
+          </div>
+
+          {/* 2b. Doctor Filter */}
+          <div className="filter-select-wrap">
+            <span className="filter-icon-box" aria-hidden="true">
+              <IconFilter size={14} />
+            </span>
+            <select
+              className="directory-filter-select"
+              value={doctorFilter}
+              onChange={(e) => setDoctorFilter(e.target.value)}
+              aria-label="Filter by doctor"
+            >
+              <option value="all">All Doctors</option>
+              {BOOKABLE_DOCTORS.map((d) => (
+                <option key={d.slug} value={d.slug}>
+                  {d.name}
+                </option>
+              ))}
+              <option value="unassigned">No doctor (older bookings)</option>
             </select>
           </div>
 
@@ -470,6 +522,7 @@ export default function AdminAppointmentsTab({
                           <strong>{appt.date}</strong>
                           <span>{appt.time}</span>
                           {appt.location && <small className="appt-location">📍 {appt.location}</small>}
+                          {appt.doctorName && <small className="appt-location">🩺 {appt.doctorName}</small>}
                         </div>
                       </td>
                       <td>

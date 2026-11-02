@@ -18,6 +18,7 @@ import {
   getSlotStep,
 } from '@/lib/slots';
 import { CLINIC } from '@/lib/clinicInfo';
+import { BOOKABLE_DOCTORS } from '@/lib/doctorsTeam';
 
 const DEFAULT_SLOT_VALUES = generateSlots(DEFAULT_CLINIC_SETTINGS).map((s) => s.value);
 const DEFAULT_STEP = getSlotStep(DEFAULT_CLINIC_SETTINGS);
@@ -138,6 +139,8 @@ export default function AdminBookAppointmentModal({
   const [email, setEmail] = useState('');
   const [age, setAge] = useState('');
   const [reason, setReason] = useState(HEALTH_REASONS[0]);
+  // Empty = walk-in not tied to one doctor (blocks the slot for every doctor)
+  const [doctorSlug, setDoctorSlug] = useState('');
   const [date, setDate] = useState(() => {
     if (
       initialDate &&
@@ -226,7 +229,9 @@ export default function AdminBookAppointmentModal({
     async function fetchSlots() {
       setIsLoadingSlots(true);
       try {
-        const res = await fetch(`/api/appointments?date=${date}`);
+        const res = await fetch(
+          `/api/appointments?date=${date}${doctorSlug ? `&doctor=${encodeURIComponent(doctorSlug)}` : ''}`
+        );
         if (res.ok) {
           const data = await res.json();
           if (!isCancelled) {
@@ -249,7 +254,7 @@ export default function AdminBookAppointmentModal({
     return () => {
       isCancelled = true;
     };
-  }, [date, isOpen, time]);
+  }, [date, isOpen, time, doctorSlug]);
 
   // When switching consultation type, adjust default payment
   const handleTypeChange = (type: 'offline' | 'online') => {
@@ -363,6 +368,7 @@ export default function AdminBookAppointmentModal({
           email: trimmedEmail,
           age: validatedAge,
           reason,
+          doctorSlug: doctorSlug || undefined,
           date,
           time,
           consultationType,
@@ -679,6 +685,27 @@ export default function AdminBookAppointmentModal({
                     required
                   />
                 </div>
+              </div>
+
+              {/* 2b. Doctor */}
+              <div className="form-field">
+                <label>Doctor</label>
+                <select
+                  value={doctorSlug}
+                  onChange={(e) => {
+                    setDoctorSlug(e.target.value);
+                    setTime('');
+                    if (errorMsg) setErrorMsg('');
+                  }}
+                  className="modal-input modal-select"
+                >
+                  <option value="">Any / not assigned to a doctor</option>
+                  {BOOKABLE_DOCTORS.map((d) => (
+                    <option key={d.slug} value={d.slug}>
+                      {d.name} ({d.role})
+                    </option>
+                  ))}
+                </select>
               </div>
 
               {/* 3. Reason for Visit */}

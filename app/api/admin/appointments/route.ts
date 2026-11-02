@@ -10,6 +10,7 @@ import {
 } from '@/lib/storage';
 import { verifyAdminRequest } from '@/lib/adminAuth';
 import { isTimeSlotTaken, getClinicSettings } from '@/lib/clinicSettings';
+import { getBookableDoctorBySlug } from '@/lib/doctorsTeam';
 import { getSlotLocation } from '@/lib/slots';
 import {
   isGoogleConnected,
@@ -192,7 +193,7 @@ export async function PATCH(request: NextRequest) {
 
       // Verify slot availability if changing date or time
       if (targetDate !== existing.date || targetTime !== existing.time) {
-        const isTaken = await isTimeSlotTaken(targetDate, targetTime, id);
+        const isTaken = await isTimeSlotTaken(targetDate, targetTime, id, existing.doctorSlug);
         if (isTaken) {
           return NextResponse.json(
             { error: `The slot ${targetTime} on ${targetDate} is already booked by another appointment.` },
@@ -314,6 +315,7 @@ export async function POST(request: NextRequest) {
       amount = 500,
       notes = '',
       message = '',
+      doctorSlug: requestedDoctorSlug,
     } = body;
 
     if (!fullName || typeof fullName !== 'string' || fullName.trim().length < 2) {
@@ -361,11 +363,20 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Appointment date and time slot are required.' }, { status: 400 });
     }
 
+    // Doctor for this booking (optional for walk-ins; blocks the slot for everyone when left empty)
+    const chosenDoctor =
+      typeof requestedDoctorSlug === 'string' && requestedDoctorSlug.trim()
+        ? getBookableDoctorBySlug(requestedDoctorSlug)
+        : undefined;
+    if (typeof requestedDoctorSlug === 'string' && requestedDoctorSlug.trim() && !chosenDoctor) {
+      return NextResponse.json({ error: 'Unknown doctor selected.' }, { status: 400 });
+    }
+
     // Check if slot is already booked in MySQL DB
-    const dbBooked = await isTimeSlotTaken(date, time);
+    const dbBooked = await isTimeSlotTaken(date, time, undefined, chosenDoctor?.slug);
     if (dbBooked) {
       return NextResponse.json(
-        { error: `The time slot ${time} on ${date} is already booked. Please choose a different slot.` },
+        { error: `The time slot ${time} on ${date} is already booked${chosenDoctor ? ` with ${chosenDoctor.name}` : ''}. Please choose a different slot.` },
         { status: 409 }
       );
     }
@@ -396,6 +407,8 @@ export async function POST(request: NextRequest) {
       notes: notes?.trim() || '',
       consultationType: consultationType as 'online' | 'offline',
       location: bookingLocation,
+      doctorSlug: chosenDoctor?.slug,
+      doctorName: chosenDoctor?.name,
     };
 
     // Calendar sync & meeting invite

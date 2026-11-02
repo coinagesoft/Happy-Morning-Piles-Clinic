@@ -1,0 +1,98 @@
+/* ---------- Step 1: choose your doctor (booking form) ---------- */
+.bk-doc .bk-doc-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 10px;
+  padding-left: 38px;
+}
+
+.bk-doc-option {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px 10px 10px;
+  border-radius: 14px;
+  border: 1.5px solid var(--line);
+  background: #ffffff;
+  color: var(--primary-dark);
+  font-family: var(--sans);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.bk-doc-option:hover:not(:disabled) {
+  border-color: var(--primary);
+}
+
+.bk-doc-option:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.bk-doc-option.is-selected {
+  border-color: var(--primary);
+  background: var(--primary-light);
+  box-shadow: 0 0 0 3px rgba(86, 90, 207, 0.15);
+}
+
+.bk-doc-photo {
+  flex: none;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--primary-light);
+}
+
+.bk-doc-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center top;
+  display: block;
+}
+
+.bk-doc-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.bk-doc-text strong {
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.bk-doc-text small {
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--muted);
+}
+
+.bk-doc-check {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--primary);
+}
+
+.bk-doc .bk-col-error {
+  margin-left: 38px;
+}
+
+@media (max-width: 720px) {
+  .bk-doc .bk-doc-options {
+    padding-left: 0;
+    grid-template-columns: 1fr;
+  }
+  .bk-doc .bk-col-error {
+    margin-left: 0;
+  }
+}

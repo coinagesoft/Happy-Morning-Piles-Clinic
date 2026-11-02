@@ -29,6 +29,8 @@ interface AppointmentRow extends RowDataPacket {
   notes: string | null;
   consultation_type?: 'online' | 'offline' | null;
   location?: string | null;
+  doctor_slug?: string | null;
+  doctor_name?: string | null;
   created_at: string;
 }
 
@@ -83,6 +85,8 @@ function mapRowToAppointment(row: AppointmentRow): Appointment {
     notes: row.notes || '',
     consultationType: isOffline ? 'offline' : 'online',
     location: row.location || undefined,
+    doctorSlug: row.doctor_slug || undefined,
+    doctorName: row.doctor_name || undefined,
   };
 }
 
@@ -107,6 +111,17 @@ function mapRowToOverride(row: DoctorOverrideRow): DoctorOverride {
     reason: row.reason,
     createdAt: row.created_at,
   };
+}
+
+/**
+ * Does this appointment occupy the given doctor's calendar?
+ * - No doctor asked for (admin/legacy callers): every appointment counts, as before.
+ * - Older bookings saved without a doctor: they still block the slot for everyone.
+ */
+export function appointmentBlocksDoctor(a: Appointment, doctorSlug?: string): boolean {
+  if (!doctorSlug) return true;
+  if (!a.doctorSlug) return true;
+  return a.doctorSlug === doctorSlug;
 }
 
 // Fetch all appointments directly from DB
@@ -280,22 +295,33 @@ export function removeCachedOverride(id: string): void {
 /**
  * Fast sub-millisecond query helpers
  */
-export async function getFastBookedSlotsForDate(date: string): Promise<string[]> {
+export async function getFastBookedSlotsForDate(
+  date: string,
+  doctorSlug?: string
+): Promise<string[]> {
   const appts = await getFastAppointments();
   return appts
-    .filter((a) => a.date === date && a.status !== 'cancelled')
+    .filter(
+      (a) =>
+        a.date === date && a.status !== 'cancelled' && appointmentBlocksDoctor(a, doctorSlug)
+    )
     .map((a) => a.time);
 }
 
-export async function isFastSlotBooked(date: string, time: string): Promise<boolean> {
-  const booked = await getFastBookedSlotsForDate(date);
+export async function isFastSlotBooked(
+  date: string,
+  time: string,
+  doctorSlug?: string
+): Promise<boolean> {
+  const booked = await getFastBookedSlotsForDate(date, doctorSlug);
   return booked.includes(time);
 }
 
 export async function isFastSlotBookedExcluding(
   date: string,
   time: string,
-  excludeId: string
+  excludeId: string,
+  doctorSlug?: string
 ): Promise<boolean> {
   const appts = await getFastAppointments();
   return appts.some(
@@ -303,7 +329,8 @@ export async function isFastSlotBookedExcluding(
       a.date === date &&
       a.time === time &&
       a.status !== 'cancelled' &&
-      a.id !== excludeId
+      a.id !== excludeId &&
+      appointmentBlocksDoctor(a, doctorSlug)
   );
 }
 
@@ -350,7 +377,7 @@ export async function getFastDoctorBlockedDates(): Promise<{ date: string; reaso
 /**
  * Fast Bulk Availability: Returns entire upcoming calendar state in < 1ms
  */
-export async function getBulkCalendarAvailability() {
+export async function getBulkCalendarAvailability(doctorSlug?: string) {
   const [appts, overrides] = await Promise.all([
     getFastAppointments(),
     getFastDoctorOverrides(),
@@ -360,6 +387,7 @@ export async function getBulkCalendarAvailability() {
   const bookedSlotsByDate: Record<string, string[]> = {};
   for (const a of appts) {
     if (a.status === 'cancelled') continue;
+    if (!appointmentBlocksDoctor(a, doctorSlug)) continue;
     if (!bookedSlotsByDate[a.date]) {
       bookedSlotsByDate[a.date] = [];
     }

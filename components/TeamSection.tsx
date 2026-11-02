@@ -1,4 +1,5 @@
 import Image from 'next/image';
+import Link from 'next/link';
 import { TEAM } from '@/lib/doctorsTeam';
 import './doctor-team.css';
 
@@ -19,6 +20,15 @@ export default function TeamSection() {
                 <span key={c}>{c}</span>
               ))}
             </div>
+            {m.bookable !== false ? (
+              <Link
+                href={`/appointment?doctor=${encodeURIComponent(m.slug)}`}
+                className="team-book-btn"
+                aria-label={`Book an appointment with ${m.name}`}
+              >
+                Book Appointment
+              </Link>
+            ) : null}
           </div>
         </article>
       ))}
