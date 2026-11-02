@@ -208,7 +208,7 @@ export async function POST(request: NextRequest) {
 
     if (!paymentId || typeof paymentId !== 'string' || !paymentId.trim()) {
       return NextResponse.json(
-        { error: 'Payment of ₹800 is required to confirm your appointment.' },
+        { error: 'Payment of ₹500 is required to confirm your appointment.' },
         { status: 400 }
       );
     }
@@ -302,7 +302,7 @@ export async function POST(request: NextRequest) {
       createdAt: new Date().toISOString(),
       status: 'confirmed',
       paymentStatus: 'paid',
-      amount: 800,
+      amount: 500,
       paymentMethod: paymentMethod || 'Razorpay',
       paymentId: paymentId.trim(),
       paidAt: new Date().toISOString(),

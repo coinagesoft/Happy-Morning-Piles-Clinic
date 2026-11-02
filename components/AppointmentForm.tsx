@@ -86,7 +86,7 @@ declare global {
 
 const RAZORPAY_KEY_ID =
   process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || 'rzp_test_TnHamcVIUGKBfj';
-const CONSULTATION_FEE_INR = 800;
+const CONSULTATION_FEE_INR = 500;
 
 function loadRazorpayCheckoutScript(): Promise<boolean> {
   return new Promise((resolve) => {
@@ -823,13 +823,13 @@ export default function AppointmentForm() {
             <p>Pick a location, date and time first, then tell us a little about you.</p>
           </div>
           <div className="bk-top-meta">
-            <span>
+            {/* <span>
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="12" cy="12" r="10" />
                 <polyline points="12 6 12 12 16 14" />
               </svg>
               9:00 AM – 6:00 PM, Mon – Sat
-            </span>
+            </span> */}
             <span className="bk-fee">Consultation fee ₹{CONSULTATION_FEE_INR}</span>
           </div>
         </div>

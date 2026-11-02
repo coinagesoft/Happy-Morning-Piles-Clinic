@@ -472,7 +472,7 @@ export default function AdminPage() {
         loadRevenue();
         toast.success(
           paymentStatus === 'paid'
-            ? 'Payment successfully marked as Paid (₹800).'
+            ? 'Payment successfully marked as Paid (₹500).'
             : `Payment status updated to ${paymentStatus}.`,
           'Payment Updated'
         );

@@ -59,11 +59,11 @@ export async function GET(request: NextRequest) {
 
     const totalRevenue = appointments
       .filter((a) => a.status !== 'cancelled' && a.paymentStatus === 'paid')
-      .reduce((sum, a) => sum + (a.amount || 800), 0);
+      .reduce((sum, a) => sum + (a.amount || 500), 0);
 
     const pendingRevenue = appointments
       .filter((a) => a.status !== 'cancelled' && a.paymentStatus === 'pending')
-      .reduce((sum, a) => sum + (a.amount || 800), 0);
+      .reduce((sum, a) => sum + (a.amount || 500), 0);
 
     const uniquePatients = new Set(
       appointments.map((a) => {
@@ -311,7 +311,7 @@ export async function POST(request: NextRequest) {
       consultationType = 'offline', // 'offline' or 'online'
       paymentMethod = 'Cash',      // 'Cash', 'UPI', 'Card', 'Pending'
       paymentStatus = 'paid',      // 'paid' or 'pending'
-      amount = 800,
+      amount = 500,
       notes = '',
       message = '',
     } = body;
@@ -374,7 +374,7 @@ export async function POST(request: NextRequest) {
     const bookingLocation = getSlotLocation(bookingSettings, date, time);
 
     const appointmentId = crypto.randomUUID();
-    const finalAmount = typeof amount === 'number' && !isNaN(amount) ? amount : 800;
+    const finalAmount = typeof amount === 'number' && !isNaN(amount) ? amount : 500;
 
     const newAppointment: Appointment = {
       id: appointmentId,

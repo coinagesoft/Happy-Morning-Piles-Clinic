@@ -27,24 +27,24 @@ export async function GET(request: NextRequest) {
     );
 
     // 1. Overall Revenue KPIs
-    const totalAllTime = paidAppointments.reduce((sum, a) => sum + (a.amount || 800), 0);
+    const totalAllTime = paidAppointments.reduce((sum, a) => sum + (a.amount || 500), 0);
     const todayRevenue = paidAppointments
       .filter((a) => a.date === todayIso)
-      .reduce((sum, a) => sum + (a.amount || 800), 0);
+      .reduce((sum, a) => sum + (a.amount || 500), 0);
 
     const thisMonthPrefix = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`;
     const thisMonthRevenue = paidAppointments
       .filter((a) => a.date.startsWith(thisMonthPrefix))
-      .reduce((sum, a) => sum + (a.amount || 800), 0);
+      .reduce((sum, a) => sum + (a.amount || 500), 0);
 
     const thisYearPrefix = `${currentYear}`;
     const thisYearRevenue = paidAppointments
       .filter((a) => a.date.startsWith(thisYearPrefix))
-      .reduce((sum, a) => sum + (a.amount || 800), 0);
+      .reduce((sum, a) => sum + (a.amount || 500), 0);
 
     const pendingReceivables = appointments
       .filter((a) => a.paymentStatus === 'pending' && a.status !== 'cancelled')
-      .reduce((sum, a) => sum + (a.amount || 800), 0);
+      .reduce((sum, a) => sum + (a.amount || 500), 0);
 
     // 2. Revenue & Bookings by Day: 15 days before, today, and 15 days onwards (31-day window)
     const dailyData: {
@@ -83,7 +83,7 @@ export async function GET(request: NextRequest) {
       const dayPaidAppts = dayAllAppts.filter(
         (a) => a.paymentStatus === 'paid' || !a.paymentStatus
       );
-      const rev = dayPaidAppts.reduce((sum, a) => sum + (a.amount || 800), 0);
+      const rev = dayPaidAppts.reduce((sum, a) => sum + (a.amount || 500), 0);
 
       dailyData.push({
         date: iso,
@@ -121,7 +121,7 @@ export async function GET(request: NextRequest) {
     }[] = monthNames.map((name, index) => {
       const monthPrefix = `${currentYear}-${String(index + 1).padStart(2, '0')}`;
       const mAppts = paidAppointments.filter((a) => a.date.startsWith(monthPrefix));
-      const rev = mAppts.reduce((sum, a) => sum + (a.amount || 800), 0);
+      const rev = mAppts.reduce((sum, a) => sum + (a.amount || 500), 0);
       return {
         month: name,
         monthIndex: index,
@@ -134,7 +134,7 @@ export async function GET(request: NextRequest) {
     const yearlyData: { year: number; revenue: number; bookings: number }[] = [];
     for (let y = currentYear - 2; y <= currentYear; y++) {
       const yAppts = paidAppointments.filter((a) => a.date.startsWith(String(y)));
-      const rev = yAppts.reduce((sum, a) => sum + (a.amount || 800), 0);
+      const rev = yAppts.reduce((sum, a) => sum + (a.amount || 500), 0);
       yearlyData.push({
         year: y,
         revenue: rev,
@@ -149,7 +149,7 @@ export async function GET(request: NextRequest) {
       const cur = reasonMap.get(r) || { count: 0, revenue: 0 };
       cur.count += 1;
       if (a.paymentStatus === 'paid' && a.status !== 'cancelled') {
-        cur.revenue += a.amount || 800;
+        cur.revenue += a.amount || 500;
       }
       reasonMap.set(r, cur);
     });
@@ -166,7 +166,7 @@ export async function GET(request: NextRequest) {
       const m = a.paymentMethod || 'UPI';
       const cur = methodMap.get(m) || { count: 0, amount: 0 };
       cur.count += 1;
-      cur.amount += a.amount || 800;
+      cur.amount += a.amount || 500;
       methodMap.set(m, cur);
     });
 
