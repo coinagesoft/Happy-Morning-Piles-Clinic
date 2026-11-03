@@ -1,10 +1,10 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import CalendarPicker from './CalendarPicker';
 import { toast } from '@/components/ui/Toast';
 import { useClinicSettings } from '@/lib/useClinicSettings';
-import Image from 'next/image';
 import { formatSlotLabel } from '@/lib/slots';
 import { BOOKABLE_DOCTORS } from '@/lib/doctorsTeam';
 import './booking.css';
@@ -213,7 +213,7 @@ export default function AppointmentForm() {
 
   // Each doctor has their own booked slots, so reload them when the patient switches doctor
   useEffect(() => {
-    if (formData.doctorSlug) preloadBulkCalendar();
+    preloadBulkCalendar();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [formData.doctorSlug]);
 
@@ -236,6 +236,21 @@ export default function AppointmentForm() {
     };
   }, []);
 
+  // Confirmation dialog: Esc closes it and the page behind does not scroll
+  useEffect(() => {
+    if (!confirmedBooking) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setConfirmedBooking(null);
+    };
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [confirmedBooking]);
+
   const preloadBulkCalendar = () => {
     const doctor = doctorSlugRef.current;
     fetch(
@@ -247,8 +262,8 @@ export default function AppointmentForm() {
         if (Array.isArray(data.blockedDates)) {
           setDoctorBlockedDates(data.blockedDates);
         }
-        // Booked slots are per doctor, so they are only used once a doctor is chosen
-        if (doctor && doctor === doctorSlugRef.current && data.bookedSlotsByDate) {
+        // Booked slots are per doctor; with no doctor chosen, any booking blocks the slot
+        if (doctor === doctorSlugRef.current && data.bookedSlotsByDate) {
           const docSlotsByDate = data.doctorBlockedSlotsByDate || {};
           const fullLeaves = new Set((data.blockedDates || []).map((b: { date: string }) => b.date));
 
@@ -256,7 +271,7 @@ export default function AppointmentForm() {
             const booked = data.bookedSlotsByDate[d] || [];
             const docBlocked = docSlotsByDate[d] || [];
             const isDocBlocked = fullLeaves.has(d);
-            slotsCacheRef.current.set(`${doctor}|${d}`, {
+            slotsCacheRef.current.set(`${doctor || 'any'}|${d}`, {
               bookedSlots: Array.from(new Set([...booked, ...docBlocked])),
               doctorBlockedSlots: docBlocked,
               isDoctorBlocked: isDocBlocked,
@@ -265,8 +280,8 @@ export default function AppointmentForm() {
           });
 
           // If current form date is already in cache, set immediately
-          if (formData.date && slotsCacheRef.current.has(`${doctor}|${formData.date}`)) {
-            const initialSlot = slotsCacheRef.current.get(`${doctor}|${formData.date}`)!;
+          if (formData.date && slotsCacheRef.current.has(`${doctor || 'any'}|${formData.date}`)) {
+            const initialSlot = slotsCacheRef.current.get(`${doctor || 'any'}|${formData.date}`)!;
             setServerBookedSlots(initialSlot.bookedSlots);
             setDoctorBlockedSlots(initialSlot.doctorBlockedSlots);
             setIsDoctorDateBlocked(initialSlot.isDoctorBlocked);
@@ -349,7 +364,7 @@ export default function AppointmentForm() {
   // Fetch booked slots whenever the selected date changes (instant 0ms from cache)
   const fetchBookedSlots = React.useCallback((dateString: string) => {
     if (!dateString) return;
-    if (!formData.doctorSlug || !formData.location || clinic.isClosedOn(dateString, formData.location)) {
+    if (!formData.location || clinic.isClosedOn(dateString, formData.location)) {
       setServerBookedSlots([]);
       setDoctorBlockedSlots([]);
       setIsDoctorDateBlocked(false);
@@ -358,7 +373,7 @@ export default function AppointmentForm() {
     }
 
     const requestedDoctor = formData.doctorSlug;
-    const cacheKey = `${requestedDoctor}|${dateString}`;
+    const cacheKey = `${requestedDoctor || 'any'}|${dateString}`;
 
     // Check fast cache first (< 0.1ms instant UI)
     const cached = slotsCacheRef.current.get(cacheKey);
@@ -372,7 +387,7 @@ export default function AppointmentForm() {
     }
 
     setIsLoadingSlots(true);
-    fetch(`/api/appointments?date=${dateString}&doctor=${encodeURIComponent(requestedDoctor)}`)
+    fetch(`/api/appointments?date=${dateString}${requestedDoctor ? `&doctor=${encodeURIComponent(requestedDoctor)}` : ''}`)
       .then((res) => res.json())
       .then((data) => {
         const slotData = {
@@ -409,7 +424,7 @@ export default function AppointmentForm() {
 
     switch (name) {
       case 'doctorSlug':
-        return trimmed ? '' : 'Please choose your doctor.';
+        return '';
 
       case 'location':
         return trimmed ? '' : 'Please choose a clinic location.';
@@ -593,7 +608,7 @@ export default function AppointmentForm() {
     setIsCheckingSlot(true);
     try {
       const res = await fetch(
-        `/api/appointments?date=${formData.date}&location=${encodeURIComponent(formData.location)}&doctor=${encodeURIComponent(formData.doctorSlug)}`
+        `/api/appointments?date=${formData.date}&location=${encodeURIComponent(formData.location)}${formData.doctorSlug ? `&doctor=${encodeURIComponent(formData.doctorSlug)}` : ''}`
       );
       const data = await res.json();
       if (data.isDoctorBlocked) {
@@ -713,8 +728,7 @@ export default function AppointmentForm() {
       setErrors({});
 
       setTimeout(() => {
-        successBoxRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        successBoxRef.current?.focus();
+        successBoxRef.current?.focus({ preventScroll: true });
       }, 80);
     } catch (err) {
       console.error('Error submitting appointment after payment:', err);
@@ -811,9 +825,7 @@ export default function AppointmentForm() {
   const dateIsBookable =
     !!formData.date && !isSunday && !isDoctorDateBlocked && (!tomorrowIso || formData.date >= tomorrowIso);
 
-  const slotNote = !formData.doctorSlug
-    ? 'Choose your doctor first to see available times.'
-    : !formData.location
+  const slotNote = !formData.location
     ? 'Choose a location first to see available times.'
     : !formData.date
     ? 'Select a date to see available times.'
@@ -834,51 +846,113 @@ export default function AppointmentForm() {
     <div className="bk">
       <div className="bk-card" ref={paymentStepRef}>
         {/* Booking confirmation (replaces the form inside the same card so the page never grows) */}
-        {confirmedBooking && (
-          <div className="bk-success" id="success-box" role="status" tabIndex={-1} ref={successBoxRef}>
+        {confirmedBooking && typeof document !== 'undefined' && createPortal(
+          <div
+            className="bk-success"
+            id="success-box"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Appointment confirmed"
+            tabIndex={-1}
+            ref={successBoxRef}
+            onClick={(e) => {
+              if (e.target === e.currentTarget) setConfirmedBooking(null);
+            }}
+          >
             <div className="bk-success-inner">
-              <div className="success-payment-pill">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-                  <polyline points="22 4 12 14.01 9 11.01" />
+              <button
+                type="button"
+                className="bk-success-close"
+                aria-label="Close"
+                onClick={() => setConfirmedBooking(null)}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
                 </svg>
-                <span>
-                  ₹{confirmedBooking.amount || CONSULTATION_FEE_INR} Paid Successfully
-                  {confirmedBooking.paymentId ? ` • Payment ID: ${confirmedBooking.paymentId}` : ''}
-                </span>
-              </div>
-              <h2>Appointment confirmed!</h2>
-              <p>
-                Thank you, <strong>{confirmedBooking.fullName}</strong>. Your consultation has been scheduled for{' '}
-                <strong>{confirmedBooking.date}</strong> at{' '}
-                <strong>{formatSlotLabel(confirmedBooking.time)}</strong>
-                {confirmedBooking.location ? (
-                  <>
-                    {' '}at <strong>{confirmedBooking.location}</strong>
-                  </>
-                ) : null}
-                {confirmedBooking.doctorName ? (
-                  <>
-                    {' '}with <strong>{confirmedBooking.doctorName}</strong>
-                  </>
-                ) : null}
-                .
-              </p>
-              <div className="notice-success">
-                Your consultation has been booked successfully! The appointment with Google Meet video call has been
-                scheduled on your calendar.
-              </div>
-              <button type="button" className="bk-pay bk-pay-secondary" onClick={() => setConfirmedBooking(null)}>
-                Book another appointment
               </button>
+
+              <header className="bk-success-head">
+                <span className="bk-success-check" aria-hidden="true">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                </span>
+                <div>
+                  <h2>Appointment confirmed</h2>
+                  <p>
+                    Thank you, <strong>{confirmedBooking.fullName}</strong>. Your consultation is booked.
+                  </p>
+                </div>
+              </header>
+
+              <dl className="bk-success-list">
+                <div>
+                  <dt>Date</dt>
+                  <dd>
+                    {new Date(`${confirmedBooking.date}T00:00:00`).toLocaleDateString('en-IN', {
+                      weekday: 'short',
+                      day: 'numeric',
+                      month: 'short',
+                      year: 'numeric',
+                    })}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Time</dt>
+                  <dd>{formatSlotLabel(confirmedBooking.time)}</dd>
+                </div>
+                <div>
+                  <dt>Location</dt>
+                  <dd>{confirmedBooking.location || '-'}</dd>
+                </div>
+                <div>
+                  <dt>Doctor</dt>
+                  <dd>{confirmedBooking.doctorName || 'Assigned by the clinic'}</dd>
+                </div>
+                <div>
+                  <dt>Payment</dt>
+                  <dd>
+                    <span className="bk-success-paid">₹{confirmedBooking.amount || CONSULTATION_FEE_INR} paid</span>
+                    {confirmedBooking.paymentId ? (
+                      <small>ID {confirmedBooking.paymentId}</small>
+                    ) : null}
+                  </dd>
+                </div>
+              </dl>
+
+              <p className="bk-success-note">
+                A Google Meet video call has been scheduled on your calendar. Please check your email for the details.
+              </p>
+
+              <div className="bk-success-actions">
+                {confirmedBooking.googleCalendarUrl ? (
+                  <a
+                    className="bk-success-btn is-primary"
+                    href={confirmedBooking.googleCalendarUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Add to Google Calendar
+                  </a>
+                ) : null}
+                <button
+                  type="button"
+                  className={`bk-success-btn ${confirmedBooking.googleCalendarUrl ? '' : 'is-primary'}`}
+                  onClick={() => setConfirmedBooking(null)}
+                >
+                  Book another appointment
+                </button>
+              </div>
             </div>
-          </div>
+          </div>,
+          document.body
         )}
 
         <div className="bk-top">
           <div>
             <h2>Schedule your consultation</h2>
-            <p>Pick your doctor, location, date and time first, then tell us a little about you.</p>
+            <p>Pick your location, date and time, then tell us a little about you. Choosing a doctor is optional.</p>
           </div>
           <div className="bk-top-meta">
             {/* <span>
@@ -895,54 +969,10 @@ export default function AppointmentForm() {
         <form id="appointment-form" className="bk-form" noValidate ref={formRef} onSubmit={handlePayAndBookSubmit}>
           <div className="bk-cols">
             <div className="bk-panel bk-panel-when">
-            {/* 1. DOCTOR */}
-            <section className={`bk-loc bk-doc ${errors.doctorSlug ? 'invalid' : ''}`} ref={doctorSectionRef}>
-              <header className="bk-col-head">
-                <span className="bk-step">1</span>
-                <div>
-                  <h2>Choose your doctor</h2>
-                  <p>Your appointment is booked under the doctor you select.</p>
-                </div>
-              </header>
-
-              <div className="bk-doc-options" role="radiogroup" aria-label="Doctor">
-                {BOOKABLE_DOCTORS.map((doc) => {
-                  const isSelected = formData.doctorSlug === doc.slug;
-                  return (
-                    <button
-                      key={doc.slug}
-                      type="button"
-                      role="radio"
-                      aria-checked={isSelected}
-                      className={`bk-doc-option ${isSelected ? 'is-selected' : ''}`}
-                      disabled={isBusy}
-                      onClick={() => handleDoctorSelect(doc.slug)}
-                    >
-                      <span className="bk-doc-photo">
-                        <Image src={doc.photo} alt="" width={96} height={96} unoptimized />
-                      </span>
-                      <span className="bk-doc-text">
-                        <strong>{doc.name}</strong>
-                        <small>{doc.role}</small>
-                      </span>
-                      {isSelected ? <span className="bk-doc-check" aria-hidden="true">✓</span> : null}
-                    </button>
-                  );
-                })}
-              </div>
-              <input type="hidden" name="doctorSlug" value={formData.doctorSlug} />
-
-              {errors.doctorSlug && (
-                <p className="bk-col-error" id="doctorSlug-error">
-                  {errors.doctorSlug}
-                </p>
-              )}
-            </section>
-
             {/* 2. LOCATION */}
             <section className={`bk-loc ${errors.location ? 'invalid' : ''}`} ref={locationSectionRef}>
               <header className="bk-col-head">
-                <span className="bk-step">2</span>
+                <span className="bk-step">1</span>
                 <div>
                   <h2>Choose a location</h2>
                   <p>Where would you like to meet the doctor?</p>
@@ -993,14 +1023,14 @@ export default function AppointmentForm() {
             {/* 1. DATE */}
             <section className={`bk-col bk-col-date ${errors.date ? 'invalid' : ''}`} ref={calendarSectionRef}>
               <header className="bk-col-head">
-                <span className="bk-step">3</span>
+                <span className="bk-step">2</span>
                 <div>
                   <h2>Choose a date</h2>
-                  <p>{formData.location ? `Days ${selectedDoctor ? selectedDoctor.name : 'the doctor'} sits at ${formData.location}` : "Doctor's visiting days, from tomorrow onwards"}</p>
+                  <p>{formData.location ? `Days ${selectedDoctor ? selectedDoctor.name : 'the clinic'} sits at ${formData.location}` : "Doctor's visiting days, from tomorrow onwards"}</p>
                 </div>
               </header>
 
-              {formData.doctorSlug && formData.location ? (
+              {formData.location ? (
                 <CalendarPicker
                   selectedDate={formData.date}
                   onSelectDate={handleCalendarDateSelect}
@@ -1015,7 +1045,7 @@ export default function AppointmentForm() {
                     <path d="M21 10c0 7-9 13-9 13S3 17 3 10a9 9 0 0 1 18 0z" />
                     <circle cx="12" cy="10" r="3" />
                   </svg>
-                  <span>{formData.doctorSlug ? 'Choose a location to see its available dates' : 'Choose your doctor to see available dates'}</span>
+                  <span>Choose a location to see its available dates</span>
                 </div>
               )}
               <input type="hidden" name="date" value={formData.date} />
@@ -1030,7 +1060,7 @@ export default function AppointmentForm() {
             {/* 2. TIME */}
             <section className={`bk-col bk-col-time ${errors.time ? 'invalid' : ''}`} ref={slotSectionRef}>
               <header className="bk-col-head">
-                <span className="bk-step">4</span>
+                <span className="bk-step">3</span>
                 <div>
                   <h2>Choose a time</h2>
                   <p id="slot-date-note">{slotNote}</p>
@@ -1090,9 +1120,7 @@ export default function AppointmentForm() {
                     <line x1="3" y1="10" x2="21" y2="10" />
                   </svg>
                   <span>
-                    {!formData.doctorSlug
-                      ? 'Choose your doctor to see time slots'
-                      : !formData.location
+                    {!formData.location
                       ? 'Choose a location to see its time slots'
                       : isDoctorDateBlocked
                       ? 'Doctor unavailable on this date'
@@ -1113,10 +1141,10 @@ export default function AppointmentForm() {
             {/* 3. DETAILS */}
             <section className="bk-panel bk-panel-details bk-col-details">
               <header className="bk-col-head">
-                <span className="bk-step">5</span>
+                <span className="bk-step">4</span>
                 <div>
                   <h2>Your details</h2>
-                  <p>All fields required except the message</p>
+                  <p>All fields required except the doctor and message</p>
                 </div>
               </header>
 
@@ -1138,6 +1166,31 @@ export default function AppointmentForm() {
               </div>
 
               <div className="bk-fields">
+                <div className={fieldCls('doctorSlug', 'span-2')} ref={doctorSectionRef}>
+                  <label htmlFor="doctorSlug">
+                    Choose your doctor <span>(optional)</span>
+                  </label>
+                  <select
+                    id="doctorSlug"
+                    name="doctorSlug"
+                    value={formData.doctorSlug}
+                    onChange={(e) => handleDoctorSelect(e.target.value)}
+                    disabled={isBusy}
+                  >
+                    <option value="">No preference - clinic will assign a doctor</option>
+                    {BOOKABLE_DOCTORS.map((doc) => (
+                      <option key={doc.slug} value={doc.slug}>
+                        {doc.name}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="bk-doc-role">
+                    {selectedDoctor
+                      ? selectedDoctor.role
+                      : 'Not sure? Skip this and the clinic will assign the right doctor.'}
+                  </p>
+                </div>
+
                 <div className={fieldCls('fullName', 'span-2')}>
                   <label htmlFor="fullName">Full name</label>
                   <input

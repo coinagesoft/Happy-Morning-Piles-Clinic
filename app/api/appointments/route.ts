@@ -35,7 +35,7 @@ import { isMsg91ConfirmationConfigured, sendMsg91WhatsApp } from '@/lib/msg91';
 import { isMailerConfigured, sendHtmlEmail } from '@/lib/mailer';
 import { formatDateLong, modeLabel, bookingConfirmationEmail } from '@/lib/reminderEmails';
 import { getAppUrl } from '@/lib/appUrl';
-import { getBookableDoctorBySlug, BOOKABLE_DOCTORS } from '@/lib/doctorsTeam';
+import { getBookableDoctorBySlug } from '@/lib/doctorsTeam';
 
 export const dynamic = 'force-dynamic';
 
@@ -136,20 +136,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // The patient must choose one of the clinic's bookable doctors.
-    const chosenDoctor = getBookableDoctorBySlug(
-      typeof requestedDoctorSlug === 'string' ? requestedDoctorSlug : ''
-    );
-    if (!chosenDoctor) {
-      return NextResponse.json(
-        {
-          error:
-            BOOKABLE_DOCTORS.length > 0
-              ? 'Please choose a doctor from the list before booking.'
-              : 'Online booking is currently unavailable.',
-        },
-        { status: 400 }
-      );
+    // The doctor is optional. When the patient leaves it empty the booking stays unassigned
+    // and the receptionist (or a doctor) assigns it later from the admin panel.
+    const requestedDoctorText =
+      typeof requestedDoctorSlug === 'string' ? requestedDoctorSlug.trim() : '';
+    const chosenDoctor = requestedDoctorText
+      ? getBookableDoctorBySlug(requestedDoctorText)
+      : undefined;
+    if (requestedDoctorText && !chosenDoctor) {
+      return NextResponse.json({ error: 'Unknown doctor selected.' }, { status: 400 });
     }
 
     const rawPhone = typeof phone === 'string' ? phone.trim().replace(/[\s-]/g, '') : '';
@@ -302,12 +297,12 @@ export async function POST(request: NextRequest) {
     }
 
     // Check if slot is already booked in MySQL DB
-    const dbBooked = await isTimeSlotTaken(date, time, undefined, chosenDoctor.slug);
+    const dbBooked = await isTimeSlotTaken(date, time, undefined, chosenDoctor?.slug);
     if (dbBooked) {
       return NextResponse.json(
         {
           error:
-            `The time slot ${time} on ${date} is already booked with ${chosenDoctor.name}. Please select another slot.`,
+            `The time slot ${time} on ${date} is already booked${chosenDoctor ? ` with ${chosenDoctor.name}` : ''}. Please select another slot.`,
           isBooked: true,
         },
         { status: 409 }
@@ -334,8 +329,8 @@ export async function POST(request: NextRequest) {
       paidAt: new Date().toISOString(),
       notes: '',
       location: bookingLocation,
-      doctorSlug: chosenDoctor.slug,
-      doctorName: chosenDoctor.name,
+      doctorSlug: chosenDoctor?.slug,
+      doctorName: chosenDoctor?.name,
     };
 
     let meetLink = '';

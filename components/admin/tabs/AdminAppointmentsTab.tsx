@@ -20,7 +20,7 @@ import {
 } from '@/components/admin/AdminIcons';
 import { AdminStats } from '@/components/admin/types';
 import { BOOKABLE_DOCTORS } from '@/lib/doctorsTeam';
-import DoctorBadge from '@/components/admin/DoctorBadge';
+import DoctorCell from '@/components/admin/DoctorCell';
 
 interface AdminAppointmentsTabProps {
   userRole?: string;
@@ -556,56 +556,15 @@ export default function AdminAppointmentsTab({
                         </span>
                       </td>
                       <td>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-start' }}>
-                          <DoctorBadge slug={appt.doctorSlug} name={appt.doctorName} />
-
-                          {canAssignAny ? (
-                            <select
-                              value={appt.doctorSlug || ''}
-                              onChange={(e) => onAssignDoctor(appt.id, e.target.value)}
-                              aria-label={`Assign doctor for ${appt.fullName}`}
-                              title="Assign or change the doctor for this appointment"
-                              style={{
-                                fontSize: 12,
-                                padding: '4px 6px',
-                                maxWidth: 180,
-                                borderRadius: 8,
-                                border: '1px solid #cbd5e1',
-                                background: '#fff',
-                                cursor: 'pointer',
-                              }}
-                            >
-                              <option value="">Not assigned</option>
-                              {appt.doctorSlug &&
-                                !BOOKABLE_DOCTORS.some((d) => d.slug === appt.doctorSlug) && (
-                                  <option value={appt.doctorSlug}>{appt.doctorName || appt.doctorSlug}</option>
-                                )}
-                              {BOOKABLE_DOCTORS.map((d) => (
-                                <option key={d.slug} value={d.slug}>
-                                  {d.name}
-                                </option>
-                              ))}
-                            </select>
-                          ) : userDoctorSlug && !appt.doctorSlug && appt.status !== 'cancelled' ? (
-                            <button
-                              type="button"
-                              onClick={() => onAssignDoctor(appt.id, userDoctorSlug)}
-                              title="Take this patient as your own"
-                              style={{
-                                fontSize: 12,
-                                fontWeight: 700,
-                                padding: '4px 10px',
-                                borderRadius: 999,
-                                border: '1px solid #565ACF',
-                                background: '#EEF0FF',
-                                color: '#565ACF',
-                                cursor: 'pointer',
-                              }}
-                            >
-                              Assign to me
-                            </button>
-                          ) : null}
-                        </div>
+                        <DoctorCell
+                          slug={appt.doctorSlug}
+                          name={appt.doctorName}
+                          patientName={appt.fullName}
+                          canAssignAny={canAssignAny}
+                          userDoctorSlug={userDoctorSlug}
+                          cancelled={appt.status === 'cancelled'}
+                          onAssign={(doctorSlug) => onAssignDoctor(appt.id, doctorSlug)}
+                        />
                       </td>
                       <td>
                         <div className="cell-patient">
