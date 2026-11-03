@@ -13,6 +13,8 @@ interface ThemedDatePickerProps {
   label?: string;
   existingOverrides?: DoctorOverride[];
   appointments?: Appointment[];
+  /** Doctor whose weekly timings decide the open / closed days. Empty = the logged-in doctor / clinic defaults. */
+  doctorSlug?: string;
   disabled?: boolean;
   className?: string;
   disableWeeklyOff?: boolean;
@@ -84,13 +86,14 @@ export default function ThemedDatePicker({
   label = 'Target Date',
   existingOverrides = [],
   appointments = [],
+  doctorSlug,
   disabled = false,
   className = '',
   disableWeeklyOff = true,
   disableDoctorLeaves = true,
   disableFullyBooked = true,
 }: ThemedDatePickerProps) {
-  const { settings, step, isClosedOn, slotsForDate } = useClinicSettings();
+  const { settings, step, isClosedOn, slotsForDate } = useClinicSettings(doctorSlug);
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 

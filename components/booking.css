@@ -1152,3 +1152,57 @@
     margin-left: 0;
   }
 }
+/* =========================================================================
+   Desktop: when the left column is taller (doctor + location + date + time),
+   let the "Message" box grow to fill the right column instead of leaving a
+   white gap above the Pay button.
+   ========================================================================= */
+@media (min-width: 1100px) {
+  .bk-panel-details .bk-fields {
+    flex: 1 1 auto;
+    /* fullName, phone/email, age/reason stay compact; the message row takes the spare height */
+    grid-template-rows: auto auto auto minmax(0, 1fr);
+  }
+  .bk-panel-details .bk-fields > .bk-field:last-child {
+    display: flex;
+    flex-direction: column;
+  }
+  .bk-panel-details .bk-fields > .bk-field:last-child textarea {
+    flex: 1 1 auto;
+    height: auto;
+    min-height: 68px;
+  }
+}
+
+/* Doctor + location side by side */
+.bk-pick-row {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  column-gap: 24px;
+  margin-bottom: 22px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid #dde1f8;
+}
+.bk-pick-row .bk-loc {
+  grid-column: auto;
+  margin: 0;
+  padding: 0;
+  border-bottom: none;
+}
+.bk-pick-row .bk-fields {
+  display: block;
+  padding-left: 38px;
+}
+.bk-pick-row .bk-field {
+  padding-bottom: 6px;
+}
+@media (max-width: 720px) {
+  .bk-pick-row {
+    grid-template-columns: 1fr;
+    row-gap: 18px;
+  }
+  .bk-pick-row .bk-fields {
+    padding-left: 0;
+  }
+}

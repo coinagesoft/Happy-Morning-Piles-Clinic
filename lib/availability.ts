@@ -1,5 +1,6 @@
 import type { RowDataPacket } from 'mysql2/promise';
 import { getPool, ensureDatabaseSchema } from './db';
+import { ensureDoctorScopeSchema } from './doctorScope';
 import {
   getFastDoctorOverrides,
   updateCachedOverride,
@@ -7,6 +8,7 @@ import {
   getFastDoctorDateBlock,
   getFastDoctorBlockedSlots,
   getFastDoctorBlockedDates,
+  overrideAppliesToDoctor,
 } from './cache';
 
 export interface DoctorOverride {
@@ -15,47 +17,34 @@ export interface DoctorOverride {
   type: 'full_day' | 'specific_slots';
   blockedSlots?: string[]; // e.g. ["10:30", "11:15"]
   reason: string;
+  /** Doctor this leave / blackout belongs to. Empty = applies to the whole clinic (older data). */
+  doctorSlug?: string;
   createdAt: string;
 }
 
-interface DoctorOverrideRow extends RowDataPacket {
-  id: string;
-  override_date: string;
-  override_type: 'full_day' | 'specific_slots';
-  blocked_slots: string | null;
-  reason: string;
-  created_at: string;
+/**
+ * Overrides one login may see:
+ * - a doctor login: their own + clinic-wide ones
+ * - admin / receptionist (no doctorSlug): everything
+ * - public visitors choosing a doctor: that doctor's + clinic-wide ones
+ */
+export async function getAllDoctorOverrides(options?: {
+  doctorSlug?: string;
+  all?: boolean;
+}): Promise<DoctorOverride[]> {
+  const list = await getFastDoctorOverrides();
+  if (options?.all) return list;
+  return list.filter((o) => overrideAppliesToDoctor(o, options?.doctorSlug));
 }
 
-function mapRowToOverride(row: DoctorOverrideRow): DoctorOverride {
-  let blockedSlots: string[] | undefined = undefined;
-  if (row.blocked_slots) {
-    try {
-      const parsed = JSON.parse(row.blocked_slots);
-      if (Array.isArray(parsed)) {
-        blockedSlots = parsed;
-      }
-    } catch {
-      blockedSlots = undefined;
-    }
-  }
-
-  return {
-    id: row.id,
-    date: row.override_date,
-    type: row.override_type,
-    blockedSlots,
-    reason: row.reason,
-    createdAt: row.created_at,
-  };
-}
-
-export async function getAllDoctorOverrides(): Promise<DoctorOverride[]> {
-  return getFastDoctorOverrides();
+export async function getDoctorOverrideById(id: string): Promise<DoctorOverride | undefined> {
+  const list = await getFastDoctorOverrides();
+  return list.find((o) => o.id === id);
 }
 
 export async function saveDoctorOverride(override: DoctorOverride): Promise<DoctorOverride> {
   await ensureDatabaseSchema();
+  await ensureDoctorScopeSchema();
   const pool = getPool();
   const blockedSlotsJson =
     override.type === 'specific_slots' && Array.isArray(override.blockedSlots)
@@ -64,19 +53,21 @@ export async function saveDoctorOverride(override: DoctorOverride): Promise<Doct
 
   await pool.execute(
     `INSERT INTO doctor_availability (
-      id, override_date, override_type, blocked_slots, reason, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?)
+      id, override_date, override_type, blocked_slots, reason, doctor_slug, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?)
     ON DUPLICATE KEY UPDATE
       override_date = VALUES(override_date),
       override_type = VALUES(override_type),
       blocked_slots = VALUES(blocked_slots),
-      reason = VALUES(reason)`,
+      reason = VALUES(reason),
+      doctor_slug = VALUES(doctor_slug)`,
     [
       override.id,
       override.date,
       override.type,
       blockedSlotsJson,
       override.reason,
+      override.doctorSlug || null,
       override.createdAt,
     ]
   );
@@ -85,27 +76,31 @@ export async function saveDoctorOverride(override: DoctorOverride): Promise<Doct
   return override;
 }
 
-export async function deleteDoctorOverride(id: string): Promise<DoctorOverride[]> {
+export async function deleteDoctorOverride(id: string): Promise<void> {
   await ensureDatabaseSchema();
+  await ensureDoctorScopeSchema();
   const pool = getPool();
   await pool.execute(`DELETE FROM doctor_availability WHERE id = ?`, [id]);
   removeCachedOverride(id);
-  return getAllDoctorOverrides();
 }
 
 export async function isDateBlockedByDoctor(
-  date: string
+  date: string,
+  doctorSlug?: string
 ): Promise<{ blocked: boolean; reason?: string }> {
-  return getFastDoctorDateBlock(date);
+  return getFastDoctorDateBlock(date, doctorSlug);
 }
 
 export async function getBlockedSlotsForDate(
   date: string,
-  allPossibleSlots?: string[]
+  allPossibleSlots?: string[],
+  doctorSlug?: string
 ): Promise<string[]> {
-  return getFastDoctorBlockedSlots(date, allPossibleSlots);
+  return getFastDoctorBlockedSlots(date, allPossibleSlots, doctorSlug);
 }
 
-export async function getDoctorBlockedDates(): Promise<{ date: string; reason: string }[]> {
-  return getFastDoctorBlockedDates();
+export async function getDoctorBlockedDates(
+  doctorSlug?: string
+): Promise<{ date: string; reason: string }[]> {
+  return getFastDoctorBlockedDates(doctorSlug);
 }

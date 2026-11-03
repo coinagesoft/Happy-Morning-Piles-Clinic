@@ -2,29 +2,53 @@ import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import {
   getAllDoctorOverrides,
+  getDoctorOverrideById,
   saveDoctorOverride,
   deleteDoctorOverride,
   getDoctorBlockedDates,
   DoctorOverride,
 } from '@/lib/availability';
-import { verifyAdminRequest } from '@/lib/adminAuth';
+import { getScopedDoctorSlug, verifyAdminRequest } from '@/lib/adminAuth';
+import { getDoctorBySlug } from '@/lib/doctorsTeam';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+/**
+ * GET /api/availability
+ * - ?doctor=<slug>  public: that doctor's leave + clinic-wide leave (booking form)
+ * - no doctor, doctor login: their own leave + clinic-wide leave
+ * - no doctor, admin / receptionist: every override
+ * - no doctor, public: clinic-wide leave only
+ */
+export async function GET(request: NextRequest) {
+  const doctorParam = request.nextUrl.searchParams.get('doctor')?.trim() || '';
+  if (doctorParam && doctorParam !== 'default' && !getDoctorBySlug(doctorParam)) {
+    return NextResponse.json({ error: 'Unknown doctor.' }, { status: 400 });
+  }
+
+  let doctorSlug: string | undefined;
+  let seeAll = false;
+
+  if (doctorParam && doctorParam !== 'default') {
+    doctorSlug = doctorParam;
+  } else if (!doctorParam) {
+    const auth = verifyAdminRequest(request);
+    if (auth.authenticated) {
+      doctorSlug = getScopedDoctorSlug(auth.payload);
+      seeAll = !doctorSlug;
+    }
+  }
+
   const [overrides, blockedDates] = await Promise.all([
-    getAllDoctorOverrides(),
-    getDoctorBlockedDates(),
+    getAllDoctorOverrides({ doctorSlug, all: seeAll }),
+    getDoctorBlockedDates(doctorSlug),
   ]);
 
   return NextResponse.json(
-    {
-      overrides,
-      blockedDates,
-    },
+    { overrides, blockedDates, doctorSlug: doctorSlug || null },
     {
       headers: {
-        'Cache-Control': 'public, max-age=10, stale-while-revalidate=30',
+        'Cache-Control': 'no-store, no-cache, must-revalidate',
       },
     }
   );
@@ -41,7 +65,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { date, type, blockedSlots, reason } = body;
+    const { date, type, blockedSlots, reason, doctorSlug: requestedDoctorSlug } = body;
 
     if (!date || typeof date !== 'string') {
       return NextResponse.json(
@@ -64,17 +88,33 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // A doctor login always blocks time for THEIR OWN calendar only.
+    // Admin may pick a doctor; with none picked the block applies to the whole clinic.
+    const scoped = getScopedDoctorSlug(auth.payload);
+    let overrideDoctorSlug: string | undefined = scoped;
+    if (!scoped && typeof requestedDoctorSlug === 'string' && requestedDoctorSlug.trim()) {
+      const doctor = getDoctorBySlug(requestedDoctorSlug);
+      if (!doctor) {
+        return NextResponse.json({ error: 'Unknown doctor.' }, { status: 400 });
+      }
+      overrideDoctorSlug = doctor.slug;
+    }
+
     const override: DoctorOverride = {
       id: crypto.randomUUID(),
       date,
       type,
       blockedSlots: type === 'specific_slots' ? blockedSlots : undefined,
       reason: (reason && typeof reason === 'string' && reason.trim()) || 'Doctor unavailable',
+      doctorSlug: overrideDoctorSlug,
       createdAt: new Date().toISOString(),
     };
 
     await saveDoctorOverride(override);
-    const overrides = await getAllDoctorOverrides();
+    const overrides = await getAllDoctorOverrides({
+      doctorSlug: scoped,
+      all: !scoped,
+    });
 
     return NextResponse.json(
       {
@@ -118,7 +158,18 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    const overrides = await deleteDoctorOverride(id);
+    // A doctor can only remove their own blocks (or an older clinic-wide one), never another doctor's.
+    const scoped = getScopedDoctorSlug(auth.payload);
+    const existing = await getDoctorOverrideById(id);
+    if (scoped && existing?.doctorSlug && existing.doctorSlug !== scoped) {
+      return NextResponse.json(
+        { error: 'This leave / blackout belongs to another doctor.' },
+        { status: 403 }
+      );
+    }
+
+    await deleteDoctorOverride(id);
+    const overrides = await getAllDoctorOverrides({ doctorSlug: scoped, all: !scoped });
 
     return NextResponse.json(
       {

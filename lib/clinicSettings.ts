@@ -1,5 +1,6 @@
 import type { RowDataPacket } from 'mysql2/promise';
 import { getPool, ensureDatabaseSchema } from './db';
+import { ensureDoctorScopeSchema } from './doctorScope';
 import { getFastAppointments, appointmentBlocksDoctor } from './cache';
 import {
   ClinicSettings,
@@ -19,13 +20,23 @@ interface ClinicSettingsRow extends RowDataPacket {
   updated_at: string;
 }
 
-// Cache lives on globalThis so it survives hot reloads. It is accessed through a local
+type CacheEntry = { data: ClinicSettings; timestamp: number };
+
+// Caches live on globalThis so they survive hot reloads. They are accessed through a local
 // cast instead of `declare global`, which avoids duplicate-declaration type errors.
 const clinicSettingsGlobal = globalThis as unknown as {
-  __clinicSettingsCache?: { data: ClinicSettings; timestamp: number };
+  /** Clinic default timings (used when a doctor has not set their own, or no doctor is chosen). */
+  __clinicSettingsCache?: CacheEntry;
+  /** Per-doctor timings, keyed by doctor slug. */
+  __doctorSettingsCache?: Record<string, CacheEntry>;
 };
 
 const SETTINGS_CACHE_TTL_MS = 10_000;
+
+function doctorCache(): Record<string, CacheEntry> {
+  if (!clinicSettingsGlobal.__doctorSettingsCache) clinicSettingsGlobal.__doctorSettingsCache = {};
+  return clinicSettingsGlobal.__doctorSettingsCache;
+}
 
 /**
  * Makes sure the `weekly` and `locations` columns exist. This runs on its own (once per
@@ -44,6 +55,7 @@ async function ensureSettingsColumns(): Promise<void> {
       // Column already exists
     }
   }
+  await ensureDoctorScopeSchema();
   g.__clinicSettingsColumnsReady = true;
 }
 
@@ -51,52 +63,45 @@ function cloneDefaults(): ClinicSettings {
   return JSON.parse(JSON.stringify(DEFAULT_CLINIC_SETTINGS)) as ClinicSettings;
 }
 
-export async function getClinicSettings(forceFresh = false): Promise<ClinicSettings> {
+function safeParse(value: string | null | undefined): unknown {
+  if (!value) return undefined;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return undefined;
+  }
+}
+
+function settingsFromRow(row: ClinicSettingsRow): ClinicSettings | undefined {
+  // The day-wise schedule and the locations list are stored as JSON.
+  // Rows saved before they existed fall back to the legacy `sessions` list.
+  const parsed = normalizeClinicSettings({
+    slotDuration: row.slot_duration,
+    bufferTime: row.buffer_time,
+    sessions: safeParse(row.sessions),
+    weekly: safeParse(row.weekly),
+    locations: safeParse(row.locations),
+  });
+  return parsed.settings;
+}
+
+/** Clinic default timings (the shared row). */
+async function loadClinicDefaults(forceFresh: boolean): Promise<ClinicSettings> {
   const cached = clinicSettingsGlobal.__clinicSettingsCache;
   if (!forceFresh && cached && Date.now() - cached.timestamp < SETTINGS_CACHE_TTL_MS) {
     return cached.data;
   }
-
   try {
     await ensureSettingsColumns();
     const pool = getPool();
     const [rows] = await pool.execute<ClinicSettingsRow[]>(
       `SELECT slot_duration, buffer_time, sessions, weekly, locations, updated_at FROM clinic_settings WHERE id = 1`
     );
-
     let settings = cloneDefaults();
     if (rows.length > 0) {
-      const row = rows[0];
-      let sessions: unknown = undefined;
-      try {
-        sessions = row.sessions ? JSON.parse(row.sessions) : undefined;
-      } catch {
-        sessions = undefined;
-      }
-      // The day-wise schedule and the locations list are stored as JSON.
-      // Rows saved before they existed fall back to the legacy `sessions` list.
-      let weekly: unknown = undefined;
-      try {
-        weekly = row.weekly ? JSON.parse(row.weekly) : undefined;
-      } catch {
-        weekly = undefined;
-      }
-      let locations: unknown = undefined;
-      try {
-        locations = row.locations ? JSON.parse(row.locations) : undefined;
-      } catch {
-        locations = undefined;
-      }
-      const parsed = normalizeClinicSettings({
-        slotDuration: row.slot_duration,
-        bufferTime: row.buffer_time,
-        sessions,
-        weekly,
-        locations,
-      });
-      if (parsed.settings) settings = parsed.settings;
+      const parsed = settingsFromRow(rows[0]);
+      if (parsed) settings = parsed;
     }
-
     clinicSettingsGlobal.__clinicSettingsCache = { data: settings, timestamp: Date.now() };
     return settings;
   } catch (err) {
@@ -105,9 +110,77 @@ export async function getClinicSettings(forceFresh = false): Promise<ClinicSetti
   }
 }
 
-export async function saveClinicSettings(settings: ClinicSettings): Promise<ClinicSettings> {
+/**
+ * Timings for one doctor. A doctor who has never saved their own timings gets the clinic
+ * defaults; with no doctor given the clinic defaults are returned.
+ */
+export async function getClinicSettings(
+  doctorSlug?: string | null,
+  forceFresh = false
+): Promise<ClinicSettings> {
+  const slug = (doctorSlug || '').trim();
+  if (!slug) return loadClinicDefaults(forceFresh);
+
+  const cache = doctorCache();
+  const cached = cache[slug];
+  if (!forceFresh && cached && Date.now() - cached.timestamp < SETTINGS_CACHE_TTL_MS) {
+    return cached.data;
+  }
+
+  try {
+    await ensureSettingsColumns();
+    const pool = getPool();
+    const [rows] = await pool.execute<ClinicSettingsRow[]>(
+      `SELECT slot_duration, buffer_time, sessions, weekly, locations, updated_at
+       FROM doctor_clinic_settings WHERE doctor_slug = ?`,
+      [slug]
+    );
+    let settings: ClinicSettings | undefined;
+    if (rows.length > 0) settings = settingsFromRow(rows[0]);
+    if (!settings) settings = await loadClinicDefaults(forceFresh);
+    cache[slug] = { data: settings, timestamp: Date.now() };
+    return settings;
+  } catch (err) {
+    console.error(`[ClinicSettings] Failed to load timings for ${slug}:`, err);
+    return cached?.data ?? (await loadClinicDefaults(false));
+  }
+}
+
+/** Saves one doctor's timings, or the clinic defaults when no doctor is given. */
+export async function saveClinicSettings(
+  settings: ClinicSettings,
+  doctorSlug?: string | null
+): Promise<ClinicSettings> {
   await ensureSettingsColumns();
   const pool = getPool();
+  const slug = (doctorSlug || '').trim();
+
+  if (slug) {
+    await pool.execute(
+      `INSERT INTO doctor_clinic_settings
+         (doctor_slug, slot_duration, buffer_time, sessions, weekly, locations, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         slot_duration = VALUES(slot_duration),
+         buffer_time = VALUES(buffer_time),
+         sessions = VALUES(sessions),
+         weekly = VALUES(weekly),
+         locations = VALUES(locations),
+         updated_at = VALUES(updated_at)`,
+      [
+        slug,
+        settings.slotDuration,
+        settings.bufferTime,
+        JSON.stringify(settings.sessions),
+        JSON.stringify(settings.weekly),
+        JSON.stringify(settings.locations),
+        new Date().toISOString(),
+      ]
+    );
+    doctorCache()[slug] = { data: settings, timestamp: Date.now() };
+    return settings;
+  }
+
   await pool.execute(
     `INSERT INTO clinic_settings (id, slot_duration, buffer_time, sessions, weekly, locations, updated_at)
      VALUES (1, ?, ?, ?, ?, ?, ?)
@@ -128,6 +201,8 @@ export async function saveClinicSettings(settings: ClinicSettings): Promise<Clin
     ]
   );
   clinicSettingsGlobal.__clinicSettingsCache = { data: settings, timestamp: Date.now() };
+  // Doctors that never saved their own timings follow the clinic defaults, so drop their cache
+  clinicSettingsGlobal.__doctorSettingsCache = {};
   return settings;
 }
 
@@ -136,14 +211,14 @@ export function getCachedSlotDuration(): number {
   return clinicSettingsGlobal.__clinicSettingsCache?.data.slotDuration ?? DEFAULT_CLINIC_SETTINGS.slotDuration;
 }
 
-export async function getClinicSlotValues(): Promise<string[]> {
-  const settings = await getClinicSettings();
+export async function getClinicSlotValues(doctorSlug?: string | null): Promise<string[]> {
+  const settings = await getClinicSettings(doctorSlug);
   return generateSlots(settings).map((s) => s.value);
 }
 
 /**
  * Checks whether `time` on `date` clashes with an existing (non-cancelled)
- * appointment, taking duration + buffer into account.
+ * appointment of that doctor, taking that doctor's duration + buffer into account.
  */
 export async function isTimeSlotTaken(
   date: string,
@@ -151,7 +226,10 @@ export async function isTimeSlotTaken(
   excludeId?: string,
   doctorSlug?: string
 ): Promise<boolean> {
-  const [settings, appointments] = await Promise.all([getClinicSettings(), getFastAppointments()]);
+  const [settings, appointments] = await Promise.all([
+    getClinicSettings(doctorSlug),
+    getFastAppointments(),
+  ]);
   const step = getSlotStep(settings);
   const times = appointments
     .filter(

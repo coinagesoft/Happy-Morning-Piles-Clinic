@@ -7,6 +7,7 @@ import ThemedDatePicker from './ThemedDatePicker';
 import { toast } from '@/components/ui/Toast';
 import { useClinicSettings } from '@/lib/useClinicSettings';
 import { expandBookedTimes } from '@/lib/slots';
+import { TEAM, getDoctorBySlug } from '@/lib/doctorsTeam';
 import SlotSettingsCard from './SlotSettingsCard';
 
 const PRESET_REASONS = [
@@ -22,6 +23,8 @@ interface DoctorAvailabilityManagerProps {
   appointments?: Appointment[];
   onRefresh: () => void | Promise<void>;
   onOverridesChange?: (nextOverrides: DoctorOverride[]) => void;
+  /** Set for a doctor login: this screen then only ever manages that doctor. */
+  doctorSlug?: string;
 }
 
 export default function DoctorAvailabilityManager({
@@ -29,8 +32,20 @@ export default function DoctorAvailabilityManager({
   appointments = [],
   onRefresh,
   onOverridesChange,
+  doctorSlug,
 }: DoctorAvailabilityManagerProps) {
-  const { slots: UNION_SLOTS, slotsForDate, step } = useClinicSettings();
+  // A doctor login manages only their own timings and leave. An admin (no doctor attached)
+  // can pick which doctor to manage, or leave it on the clinic-wide defaults.
+  const [pickedDoctor, setPickedDoctor] = useState('');
+  const activeDoctor = doctorSlug || pickedDoctor;
+  const activeDoctorName = getDoctorBySlug(activeDoctor)?.name;
+  const { slots: UNION_SLOTS, slotsForDate, step } = useClinicSettings(activeDoctor || 'default');
+
+  // Leave that applies to the doctor being managed (their own + clinic-wide)
+  const relevantOverrides = React.useMemo(
+    () => overrides.filter((o) => !o.doctorSlug || o.doctorSlug === activeDoctor),
+    [overrides, activeDoctor]
+  );
   const tomorrowIso = React.useMemo(() => {
     const d = new Date();
     d.setDate(d.getDate() + 1);
@@ -58,7 +73,12 @@ export default function DoctorAvailabilityManager({
     expandBookedTimes(
       slotValues,
       appointments
-        .filter((appointment) => appointment.date === date && appointment.status !== 'cancelled')
+        .filter(
+          (appointment) =>
+            appointment.date === date &&
+            appointment.status !== 'cancelled' &&
+            (!activeDoctor || !appointment.doctorSlug || appointment.doctorSlug === activeDoctor)
+        )
         .map((appointment) => appointment.time),
       step
     )
@@ -117,6 +137,7 @@ export default function DoctorAvailabilityManager({
         body: JSON.stringify({
           date,
           type,
+          doctorSlug: activeDoctor || undefined,
           blockedSlots: type === 'specific_slots' ? selectedSlots : undefined,
           reason: reason.trim() || (type === 'full_day' ? 'Doctor On Leave' : 'Doctor Unavailable'),
         }),
@@ -260,13 +281,39 @@ export default function DoctorAvailabilityManager({
       )}
 
       {/* Appointment duration + buffer + working hours */}
-      <SlotSettingsCard onSaved={onRefresh} />
+      {!doctorSlug && (
+        <div className="availability-card" style={{ marginBottom: 16 }}>
+          <h3 className="card-heading">Which doctor are you managing?</h3>
+          <p className="card-subhead">
+            Timings, leave and blocked slots are saved for the doctor you pick here, and only
+            change that doctor&apos;s calendar.
+          </p>
+          <select
+            value={pickedDoctor}
+            onChange={(e) => {
+              setPickedDoctor(e.target.value);
+              setSelectedSlots([]);
+            }}
+            style={{ width: '100%', maxWidth: 360, padding: '10px 12px', borderRadius: 10 }}
+          >
+            <option value="">Clinic defaults (used when a doctor has no timings of their own)</option>
+            {TEAM.filter((m) => m.bookable !== false).map((m) => (
+              <option key={m.slug} value={m.slug}>
+                {m.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {/* Appointment duration + buffer + working hours (saved for the doctor being managed) */}
+      <SlotSettingsCard key={activeDoctor || 'default'} doctorSlug={activeDoctor} onSaved={onRefresh} />
 
       <div className="availability-layout-grid">
         {/* Availability Form Card */}
         <div className="availability-card form-card">
           <h3 className="card-heading">Set Unavailability / Blackout</h3>
-          <p className="card-subhead">Specify dates or hours when Dr. Mahesh Shete will not take appointments.</p>
+          <p className="card-subhead">Specify dates or hours when {activeDoctorName || (doctorSlug ? 'you' : 'the clinic')} will not take appointments.</p>
 
           <form onSubmit={handleSubmit} className="availability-form">
             <div className="form-group datepicker-form-group">
@@ -275,7 +322,8 @@ export default function DoctorAvailabilityManager({
                 onChange={handleDateChange}
                 minDate={tomorrowIso}
                 label="Target Date"
-                existingOverrides={overrides}
+                existingOverrides={relevantOverrides}
+                doctorSlug={activeDoctor || 'default'}
                 disabled={isSubmitting}
                 disableWeeklyOff={false}
                 disableDoctorLeaves={false}
@@ -433,6 +481,7 @@ export default function DoctorAvailabilityManager({
                 <thead>
                   <tr>
                     <th>Date</th>
+                    {!doctorSlug && <th>Doctor</th>}
                     <th>Type</th>
                     <th>Blocked Details</th>
                     <th>Reason</th>
@@ -462,6 +511,13 @@ export default function DoctorAvailabilityManager({
                             <span>{weekdayLabel || item.date}</span>
                           </div>
                         </td>
+                        {!doctorSlug && (
+                          <td className="col-override-doctor">
+                            <span className="override-reason-text">
+                              {getDoctorBySlug(item.doctorSlug)?.name || 'Whole clinic'}
+                            </span>
+                          </td>
+                        )}
                         <td className="col-override-type">
                           <span className={`override-type-pill ${item.type}`}>
                             {item.type === 'full_day' ? 'Full Day Off' : 'Partial Slots'}

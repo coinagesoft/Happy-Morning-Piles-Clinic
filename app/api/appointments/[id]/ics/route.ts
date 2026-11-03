@@ -14,7 +14,7 @@ export async function GET(
     return NextResponse.json({ error: 'Appointment not found' }, { status: 404 });
   }
 
-  const { slotDuration } = await getClinicSettings();
+  const { slotDuration } = await getClinicSettings(appointment.doctorSlug);
   const ics = generateIcsContent(appointment, slotDuration);
 
   return new NextResponse(ics, {

@@ -738,6 +738,7 @@ export default function AdminPage() {
         {activeTab === 'availability' && isDoctor && (
           <div className="tab-pane-fade">
             <DoctorAvailabilityManager
+              doctorSlug={adminUser?.doctorSlug}
               overrides={overrides}
               appointments={appointments}
               onOverridesChange={setOverrides}

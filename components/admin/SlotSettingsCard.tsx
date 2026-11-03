@@ -2,7 +2,11 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from '@/components/ui/Toast';
-import { setClinicSettingsCache, useClinicSettings } from '@/lib/useClinicSettings';
+import {
+  refreshAllClinicSettings,
+  setClinicSettingsCache,
+  useClinicSettings,
+} from '@/lib/useClinicSettings';
 import {
   ClinicSettings,
   DEFAULT_LOCATION,
@@ -53,10 +57,13 @@ function withCurrent(options: number[], current: string): number[] {
 
 interface SlotSettingsCardProps {
   onSaved?: () => void | Promise<void>;
+  /** Doctor whose timings are edited. Empty = the clinic defaults. */
+  doctorSlug?: string;
 }
 
-export default function SlotSettingsCard({ onSaved }: SlotSettingsCardProps) {
-  const { settings, isLoaded } = useClinicSettings();
+export default function SlotSettingsCard({ onSaved, doctorSlug }: SlotSettingsCardProps) {
+  const storeKey = doctorSlug || 'default';
+  const { settings, isLoaded } = useClinicSettings(storeKey);
   const [draft, setDraft] = useState<Draft>(() => toDraft(settings));
   const [isSaving, setIsSaving] = useState(false);
   const [warning, setWarning] = useState<string | null>(null);
@@ -270,18 +277,23 @@ export default function SlotSettingsCard({ onSaved }: SlotSettingsCardProps) {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
 
-      const res = await fetch('/api/clinic-settings', {
-        method: 'PUT',
-        headers,
-        credentials: 'same-origin',
-        cache: 'no-store',
-        body: JSON.stringify(validation.settings),
-      });
+      const res = await fetch(
+        `/api/clinic-settings${doctorSlug ? `?doctor=${encodeURIComponent(doctorSlug)}` : ''}`,
+        {
+          method: 'PUT',
+          headers,
+          credentials: 'same-origin',
+          cache: 'no-store',
+          body: JSON.stringify(validation.settings),
+        }
+      );
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to save appointment settings.');
 
       touched.current = false;
-      setClinicSettingsCache(data.settings as ClinicSettings);
+      setClinicSettingsCache(data.settings as ClinicSettings, storeKey);
+      // Other screens (calendar, reschedule ...) may hold the same timings under another key
+      void refreshAllClinicSettings();
       setDraft(toDraft(data.settings as ClinicSettings));
 
       toast.success('Your clinic timings are saved. Patients will see them now.', 'Saved');

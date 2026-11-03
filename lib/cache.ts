@@ -1,6 +1,7 @@
 import { Appointment } from './storage';
 import { DoctorOverride } from './availability';
 import { getPool, ensureDatabaseSchema } from './db';
+import { ensureDoctorScopeSchema } from './doctorScope';
 import type { RowDataPacket } from 'mysql2/promise';
 
 interface CacheEntry<T> {
@@ -40,6 +41,7 @@ interface DoctorOverrideRow extends RowDataPacket {
   override_type: 'full_day' | 'specific_slots';
   blocked_slots: string | null;
   reason: string;
+  doctor_slug?: string | null;
   created_at: string;
 }
 
@@ -109,8 +111,20 @@ function mapRowToOverride(row: DoctorOverrideRow): DoctorOverride {
     type: row.override_type,
     blockedSlots,
     reason: row.reason,
+    doctorSlug: row.doctor_slug || undefined,
     createdAt: row.created_at,
   };
+}
+
+/**
+ * Does a leave / blackout apply to this doctor's calendar?
+ * - Clinic-wide overrides (no doctor saved, older data) apply to everyone.
+ * - A doctor's own override applies to that doctor only.
+ * - With no doctor chosen only clinic-wide overrides count.
+ */
+export function overrideAppliesToDoctor(o: DoctorOverride, doctorSlug?: string): boolean {
+  if (!o.doctorSlug) return true;
+  return !!doctorSlug && o.doctorSlug === doctorSlug;
 }
 
 /**
@@ -137,6 +151,7 @@ async function fetchAppointmentsFromDb(): Promise<Appointment[]> {
 // Fetch all doctor overrides directly from DB
 async function fetchOverridesFromDb(): Promise<DoctorOverride[]> {
   await ensureDatabaseSchema();
+  await ensureDoctorScopeSchema();
   const pool = getPool();
   const [rows] = await pool.execute<DoctorOverrideRow[]>(
     `SELECT * FROM doctor_availability ORDER BY override_date ASC, created_at DESC`
@@ -335,10 +350,13 @@ export async function isFastSlotBookedExcluding(
 }
 
 export async function getFastDoctorDateBlock(
-  date: string
+  date: string,
+  doctorSlug?: string
 ): Promise<{ blocked: boolean; reason?: string }> {
   const overrides = await getFastDoctorOverrides();
-  const match = overrides.find((o) => o.date === date && o.type === 'full_day');
+  const match = overrides.find(
+    (o) => o.date === date && o.type === 'full_day' && overrideAppliesToDoctor(o, doctorSlug)
+  );
   if (match) {
     return { blocked: true, reason: match.reason || 'Doctor on leave' };
   }
@@ -347,13 +365,14 @@ export async function getFastDoctorDateBlock(
 
 export async function getFastDoctorBlockedSlots(
   date: string,
-  allPossibleSlots?: string[]
+  allPossibleSlots?: string[],
+  doctorSlug?: string
 ): Promise<string[]> {
   const overrides = await getFastDoctorOverrides();
   const blocked = new Set<string>();
 
   for (const o of overrides) {
-    if (o.date === date) {
+    if (o.date === date && overrideAppliesToDoctor(o, doctorSlug)) {
       if (o.type === 'full_day') {
         if (allPossibleSlots) {
           allPossibleSlots.forEach((s) => blocked.add(s));
@@ -367,10 +386,12 @@ export async function getFastDoctorBlockedSlots(
   return Array.from(blocked);
 }
 
-export async function getFastDoctorBlockedDates(): Promise<{ date: string; reason: string }[]> {
+export async function getFastDoctorBlockedDates(
+  doctorSlug?: string
+): Promise<{ date: string; reason: string }[]> {
   const overrides = await getFastDoctorOverrides();
   return overrides
-    .filter((o) => o.type === 'full_day')
+    .filter((o) => o.type === 'full_day' && overrideAppliesToDoctor(o, doctorSlug))
     .map((o) => ({ date: o.date, reason: o.reason }));
 }
 
@@ -378,10 +399,12 @@ export async function getFastDoctorBlockedDates(): Promise<{ date: string; reaso
  * Fast Bulk Availability: Returns entire upcoming calendar state in < 1ms
  */
 export async function getBulkCalendarAvailability(doctorSlug?: string) {
-  const [appts, overrides] = await Promise.all([
+  const [appts, allOverrides] = await Promise.all([
     getFastAppointments(),
     getFastDoctorOverrides(),
   ]);
+  // Only this doctor's leaves (plus clinic-wide ones) shape this doctor's calendar
+  const overrides = allOverrides.filter((o) => overrideAppliesToDoctor(o, doctorSlug));
 
   // Group booked slots by date
   const bookedSlotsByDate: Record<string, string[]> = {};

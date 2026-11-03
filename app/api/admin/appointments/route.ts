@@ -286,7 +286,7 @@ export async function PATCH(request: NextRequest) {
       }
 
       // Make sure the calendar event length follows the current appointment settings
-      const clinicSettings = await getClinicSettings();
+      const clinicSettings = await getClinicSettings(existing.doctorSlug);
       const targetLocation = getSlotLocation(clinicSettings, targetDate, targetTime);
 
       // Sync with Google Calendar if connected
@@ -484,7 +484,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const bookingSettings = await getClinicSettings();
+    const bookingSettings = await getClinicSettings(chosenDoctor?.slug);
     const bookingLocation = getSlotLocation(bookingSettings, date, time);
 
     const appointmentId = crypto.randomUUID();

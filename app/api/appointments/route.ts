@@ -56,7 +56,7 @@ export async function GET(request: NextRequest) {
   if (bulk || !date) {
     const [bulkData, settings] = await Promise.all([
       getBulkCalendarAvailability(doctorSlugForSlots),
-      getClinicSettings(),
+      getClinicSettings(doctorSlugForSlots),
     ]);
     const slotValues = generateSlots(settings).map((s) => s.value);
     const step = getSlotStep(settings);
@@ -74,15 +74,16 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  const settings = await getClinicSettings();
+  // Timings, leave and booked slots all follow the doctor the patient picked
+  const settings = await getClinicSettings(doctorSlugForSlots);
   const locationParam = searchParams.get('location')?.trim() || undefined;
   const daySlots = generateSlots(settings, date, locationParam);
   const slotValues = daySlots.map((s) => s.value);
   const step = getSlotStep(settings);
 
   const [doctorDateBlock, doctorBlockedSlots, dbBookedTimes] = await Promise.all([
-    isDateBlockedByDoctor(date),
-    getBlockedSlotsForDate(date, slotValues),
+    isDateBlockedByDoctor(date, doctorSlugForSlots),
+    getBlockedSlotsForDate(date, slotValues, doctorSlugForSlots),
     getBookedSlotsForDate(date, doctorSlugForSlots),
   ]);
 
@@ -235,7 +236,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Check doctor availability override (Full Day or Slot)
-    const doctorDateBlock = await isDateBlockedByDoctor(date);
+    const doctorDateBlock = await isDateBlockedByDoctor(date, chosenDoctor?.slug);
     if (doctorDateBlock.blocked) {
       return NextResponse.json(
         {
@@ -246,7 +247,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const settings = await getClinicSettings();
+    const settings = await getClinicSettings(chosenDoctor?.slug);
 
     // The patient must pick one of the doctor's locations (auto-picked when there is only one).
     const bookableLocations = getBookableLocations(settings);
@@ -285,7 +286,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const doctorBlockedSlots = await getBlockedSlotsForDate(date, slotValues);
+    const doctorBlockedSlots = await getBlockedSlotsForDate(date, slotValues, chosenDoctor?.slug);
     if (doctorBlockedSlots.includes(time)) {
       return NextResponse.json(
         {

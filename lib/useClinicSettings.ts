@@ -18,37 +18,62 @@ import {
  * Tiny shared store so every component (patient booking form, admin calendar,
  * reschedule modal, availability manager ...) uses the same slot grid and
  * re-renders as soon as the admin saves new appointment settings.
+ *
+ * Timings are kept PER DOCTOR. The store key is the doctor slug:
+ *  - a doctor slug  -> that doctor's timings
+ *  - 'default'      -> the clinic defaults (no doctor chosen)
+ *  - '' (omitted)   -> let the server decide: a doctor login gets their own timings,
+ *                      everyone else the clinic defaults
  */
-let current: ClinicSettings = DEFAULT_CLINIC_SETTINGS;
-let loaded = false;
-let inflight: Promise<void> | null = null;
+type Entry = { settings: ClinicSettings; loaded: boolean };
+
+const store = new Map<string, Entry>();
+const inflight = new Map<string, Promise<void>>();
 const listeners = new Set<() => void>();
+
+function keyOf(doctorSlug?: string | null): string {
+  return (doctorSlug || '').trim();
+}
+
+function getEntry(key: string): Entry {
+  return store.get(key) || { settings: DEFAULT_CLINIC_SETTINGS, loaded: false };
+}
 
 function notify() {
   listeners.forEach((listener) => listener());
 }
 
-export function setClinicSettingsCache(next: ClinicSettings) {
-  current = next;
-  loaded = true;
+export function setClinicSettingsCache(next: ClinicSettings, doctorSlug?: string | null) {
+  store.set(keyOf(doctorSlug), { settings: next, loaded: true });
   notify();
 }
 
-async function loadClinicSettings(force = false): Promise<void> {
-  if (inflight && !force) return inflight;
-  inflight = fetch(`/api/clinic-settings?t=${Date.now()}`, { cache: 'no-store' })
+async function loadClinicSettings(key: string, force = false): Promise<void> {
+  const running = inflight.get(key);
+  if (running && !force) return running;
+  const doctorQuery = key ? `&doctor=${encodeURIComponent(key)}` : '';
+  const request = fetch(`/api/clinic-settings?t=${Date.now()}${doctorQuery}`, {
+    cache: 'no-store',
+    credentials: 'same-origin',
+  })
     .then((res) => (res.ok ? res.json() : null))
     .then((data) => {
-      if (data?.settings) setClinicSettingsCache(data.settings as ClinicSettings);
+      if (data?.settings) setClinicSettingsCache(data.settings as ClinicSettings, key);
     })
     .catch((err) => console.error('Failed to load appointment settings:', err))
     .finally(() => {
-      inflight = null;
+      inflight.delete(key);
     });
-  return inflight;
+  inflight.set(key, request);
+  return request;
 }
 
-export function useClinicSettings(): {
+/** Reloads every timing set that is currently in memory (call after saving timings). */
+export function refreshAllClinicSettings(): Promise<void[]> {
+  return Promise.all(Array.from(store.keys()).map((key) => loadClinicSettings(key, true)));
+}
+
+export function useClinicSettings(doctorSlug?: string | null): {
   settings: ClinicSettings;
   slots: ClinicSlot[];
   slotValues: string[];
@@ -71,17 +96,18 @@ export function useClinicSettings(): {
   reload: () => Promise<void>;
 } {
   const [, setTick] = useState(0);
+  const key = keyOf(doctorSlug);
 
   useEffect(() => {
     const listener = () => setTick((n) => n + 1);
     listeners.add(listener);
-    if (!loaded) void loadClinicSettings();
+    if (!getEntry(key).loaded) void loadClinicSettings(key);
     return () => {
       listeners.delete(listener);
     };
-  }, []);
+  }, [key]);
 
-  const settings = current;
+  const { settings, loaded } = getEntry(key);
   const slots = useMemo(() => generateSlots(settings), [settings]);
   const slotValues = useMemo(() => slots.map((s) => s.value), [slots]);
 
@@ -101,6 +127,6 @@ export function useClinicSettings(): {
     locationFor: (date: string, time: string) =>
       date && time ? getSlotLocation(settings, date, time) : undefined,
     isLoaded: loaded,
-    reload: () => loadClinicSettings(true),
+    reload: () => loadClinicSettings(key, true),
   };
 }

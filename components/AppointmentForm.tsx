@@ -120,7 +120,6 @@ function loadRazorpayCheckoutScript(): Promise<boolean> {
 }
 
 export default function AppointmentForm() {
-  const clinic = useClinicSettings();
   const [formData, setFormData] = useState<FormData>({
     doctorSlug: '',
     location: '',
@@ -133,6 +132,8 @@ export default function AppointmentForm() {
     time: '',
     message: '',
   });
+  // Timings (days, hours, locations) belong to the doctor the patient picked
+  const clinic = useClinicSettings(formData.doctorSlug || 'default');
 
   // Latest chosen doctor, readable from timers/effects that captured an older render
   const doctorSlugRef = useRef('');
@@ -214,6 +215,7 @@ export default function AppointmentForm() {
   // Each doctor has their own booked slots, so reload them when the patient switches doctor
   useEffect(() => {
     preloadBulkCalendar();
+    fetchDoctorAvailability();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [formData.doctorSlug]);
 
@@ -293,7 +295,10 @@ export default function AppointmentForm() {
   };
 
   const fetchDoctorAvailability = () => {
-    fetch(`/api/availability?t=${Date.now()}`, { cache: 'no-store' })
+    const doctor = doctorSlugRef.current;
+    fetch(`/api/availability?t=${Date.now()}&doctor=${encodeURIComponent(doctor || 'default')}`, {
+      cache: 'no-store',
+    })
       .then((res) => res.json())
       .then((data) => {
         if (Array.isArray(data.blockedDates)) {
@@ -349,17 +354,23 @@ export default function AppointmentForm() {
   const handleDoctorSelect = (slug: string) => {
     if (slug === formData.doctorSlug) return;
     setServerBookedSlots([]);
-    setFormData((prev) => ({ ...prev, doctorSlug: slug, time: '' }));
-    setErrors((prev) => ({ ...prev, doctorSlug: '', time: '' }));
+    setDoctorBlockedDates([]);
+    setDoctorBlockedSlots([]);
+    setIsDoctorDateBlocked(false);
+    setDoctorBlockReason('');
+    // Every doctor has their own days, hours and locations, so start the schedule again
+    setFormData((prev) => ({ ...prev, doctorSlug: slug, location: '', date: '', time: '' }));
+    setErrors((prev) => ({ ...prev, doctorSlug: '', location: '', date: '', time: '' }));
   };
 
   // With a single location there is nothing to choose, so it is selected automatically
   useEffect(() => {
+    // (locations follow the chosen doctor, or the clinic defaults when no doctor is chosen)
     if (clinic.isLoaded && !formData.location && clinic.bookableLocations.length === 1) {
       handleLocationSelect(clinic.bookableLocations[0]);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clinic.isLoaded, clinic.bookableLocations.join('|'), formData.location]);
+  }, [formData.doctorSlug, clinic.isLoaded, clinic.bookableLocations.join('|'), formData.location]);
 
   // Fetch booked slots whenever the selected date changes (instant 0ms from cache)
   const fetchBookedSlots = React.useCallback((dateString: string) => {
@@ -969,17 +980,54 @@ export default function AppointmentForm() {
         <form id="appointment-form" className="bk-form" noValidate ref={formRef} onSubmit={handlePayAndBookSubmit}>
           <div className="bk-cols">
             <div className="bk-panel bk-panel-when">
+            <div className="bk-pick-row">
+            {/* 1. DOCTOR - timings, leave and booked slots are all per doctor */}
+            <section className={`bk-loc ${errors.doctorSlug ? 'invalid' : ''}`} ref={doctorSectionRef}>
+              <header className="bk-col-head">
+                <span className="bk-step">1</span>
+                <div>
+                  <h2>Choose your doctor <span style={{ fontWeight: 500, fontSize: '0.75em', opacity: 0.7 }}>(optional)</span></h2>
+                  <p>Skip this and the clinic will assign a doctor.</p>
+                </div>
+              </header>
+              <div className="bk-fields">
+                <div className="bk-field span-2">
+                  <select
+                    id="doctorSlug"
+                    name="doctorSlug"
+                    aria-label="Choose your doctor"
+                    value={formData.doctorSlug}
+                    onChange={(e) => handleDoctorSelect(e.target.value)}
+                    disabled={isBusy}
+                  >
+                    <option value="">No preference</option>
+                    {BOOKABLE_DOCTORS.map((doc) => (
+                      <option key={doc.slug} value={doc.slug}>
+                        {doc.name}
+                      </option>
+                    ))}
+                  </select>
+                  {selectedDoctor && <p className="bk-doc-role">{selectedDoctor.role}</p>}
+                  {errors.doctorSlug && (
+                    <p className="bk-col-error" id="doctor-error">
+                      {errors.doctorSlug}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </section>
+
             {/* 2. LOCATION */}
             <section className={`bk-loc ${errors.location ? 'invalid' : ''}`} ref={locationSectionRef}>
               <header className="bk-col-head">
-                <span className="bk-step">1</span>
+                <span className="bk-step">2</span>
                 <div>
                   <h2>Choose a location</h2>
                   <p>Where would you like to meet the doctor?</p>
                 </div>
               </header>
 
-              {clinic.bookableLocations.length === 0 ? (
+              {!clinic.isLoaded || clinic.bookableLocations.length === 0 ? (
                 <p className="bk-loc-note">Loading locations...</p>
               ) : (
                 <div className="bk-loc-options" role="radiogroup" aria-label="Clinic location">
@@ -1019,11 +1067,12 @@ export default function AppointmentForm() {
                 </p>
               )}
             </section>
+            </div>
 
             {/* 1. DATE */}
             <section className={`bk-col bk-col-date ${errors.date ? 'invalid' : ''}`} ref={calendarSectionRef}>
               <header className="bk-col-head">
-                <span className="bk-step">2</span>
+                <span className="bk-step">3</span>
                 <div>
                   <h2>Choose a date</h2>
                   <p>{formData.location ? `Days ${selectedDoctor ? selectedDoctor.name : 'the clinic'} sits at ${formData.location}` : "Doctor's visiting days, from tomorrow onwards"}</p>
@@ -1060,7 +1109,7 @@ export default function AppointmentForm() {
             {/* 2. TIME */}
             <section className={`bk-col bk-col-time ${errors.time ? 'invalid' : ''}`} ref={slotSectionRef}>
               <header className="bk-col-head">
-                <span className="bk-step">3</span>
+                <span className="bk-step">4</span>
                 <div>
                   <h2>Choose a time</h2>
                   <p id="slot-date-note">{slotNote}</p>
@@ -1141,7 +1190,7 @@ export default function AppointmentForm() {
             {/* 3. DETAILS */}
             <section className="bk-panel bk-panel-details bk-col-details">
               <header className="bk-col-head">
-                <span className="bk-step">4</span>
+                <span className="bk-step">5</span>
                 <div>
                   <h2>Your details</h2>
                   <p>All fields required except the doctor and message</p>
@@ -1166,31 +1215,6 @@ export default function AppointmentForm() {
               </div>
 
               <div className="bk-fields">
-                <div className={fieldCls('doctorSlug', 'span-2')} ref={doctorSectionRef}>
-                  <label htmlFor="doctorSlug">
-                    Choose your doctor <span>(optional)</span>
-                  </label>
-                  <select
-                    id="doctorSlug"
-                    name="doctorSlug"
-                    value={formData.doctorSlug}
-                    onChange={(e) => handleDoctorSelect(e.target.value)}
-                    disabled={isBusy}
-                  >
-                    <option value="">No preference - clinic will assign a doctor</option>
-                    {BOOKABLE_DOCTORS.map((doc) => (
-                      <option key={doc.slug} value={doc.slug}>
-                        {doc.name}
-                      </option>
-                    ))}
-                  </select>
-                  <p className="bk-doc-role">
-                    {selectedDoctor
-                      ? selectedDoctor.role
-                      : 'Not sure? Skip this and the clinic will assign the right doctor.'}
-                  </p>
-                </div>
-
                 <div className={fieldCls('fullName', 'span-2')}>
                   <label htmlFor="fullName">Full name</label>
                   <input

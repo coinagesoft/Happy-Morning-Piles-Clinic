@@ -32,7 +32,8 @@ export default function AdminRescheduleModal({
   appointments = [],
   overrides = [],
 }: AdminRescheduleModalProps) {
-  const { slotsForDate, locationFor } = useClinicSettings();
+  // Slots follow the timings of the doctor this appointment belongs to
+  const { slotsForDate, locationFor } = useClinicSettings(appointment?.doctorSlug);
   // Today in Asia/Kolkata
   const todayIso = useMemo(() => {
     return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
