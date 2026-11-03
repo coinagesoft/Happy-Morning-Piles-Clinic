@@ -8,7 +8,12 @@ import {
   saveAppointment,
   Appointment,
 } from '@/lib/storage';
-import { verifyAdminRequest } from '@/lib/adminAuth';
+import {
+  verifyAdminRequest,
+  getScopedDoctorSlug,
+  canAssignAnyDoctor,
+  canManageAppointment,
+} from '@/lib/adminAuth';
 import { isTimeSlotTaken, getClinicSettings } from '@/lib/clinicSettings';
 import { getBookableDoctorBySlug } from '@/lib/doctorsTeam';
 import { getSlotLocation } from '@/lib/slots';
@@ -42,6 +47,12 @@ export async function GET(request: NextRequest) {
     const forceFresh = searchParams.get('fresh') === 'true' || searchParams.has('_t');
 
     let appointments = await getAllAppointments(forceFresh);
+
+    // A doctor login only sees its own patients plus unassigned ones (which it can take).
+    const scopedSlug = getScopedDoctorSlug(auth.payload);
+    if (scopedSlug) {
+      appointments = appointments.filter((a) => !a.doctorSlug || a.doctorSlug === scopedSlug);
+    }
 
     // Sort by date descending (latest first)
     appointments.sort((a, b) => {
@@ -154,6 +165,7 @@ export async function PATCH(request: NextRequest) {
       consultationType,
       isReschedule,
       rescheduleReason,
+      assignDoctorSlug,
     } = body;
 
     if (!id || typeof id !== 'string') {
@@ -171,7 +183,78 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
+    const scopedSlug = getScopedDoctorSlug(auth.payload);
+
+    // A doctor can only change their own appointments. On an unassigned one the only
+    // thing allowed is taking it ("assign to me").
+    if (scopedSlug && existing.doctorSlug !== scopedSlug) {
+      const onlyClaiming =
+        existing.doctorSlug === undefined &&
+        assignDoctorSlug === scopedSlug &&
+        Object.keys(body).every((k) => k === 'id' || k === 'assignDoctorSlug');
+      if (!onlyClaiming) {
+        return NextResponse.json(
+          {
+            error: existing.doctorSlug
+              ? 'This appointment belongs to another doctor.'
+              : 'Assign this appointment to yourself first.',
+          },
+          { status: 403 }
+        );
+      }
+    }
+
     const updates: Partial<Appointment> = {};
+
+    // Assign / re-assign / self-assign the doctor
+    let assignmentMessage = '';
+    if (assignDoctorSlug !== undefined) {
+      if (typeof assignDoctorSlug !== 'string') {
+        return NextResponse.json({ error: 'Invalid doctor.' }, { status: 400 });
+      }
+      const targetSlug = assignDoctorSlug.trim();
+
+      if (scopedSlug) {
+        if (targetSlug !== scopedSlug) {
+          return NextResponse.json(
+            { error: 'Doctors can only assign appointments to themselves.' },
+            { status: 403 }
+          );
+        }
+      } else if (!canAssignAnyDoctor(auth.payload)) {
+        return NextResponse.json(
+          { error: 'You do not have permission to assign doctors.' },
+          { status: 403 }
+        );
+      }
+
+      if (targetSlug !== (existing.doctorSlug || '')) {
+        if (targetSlug) {
+          const doctor = getBookableDoctorBySlug(targetSlug);
+          if (!doctor) {
+            return NextResponse.json({ error: 'Unknown doctor selected.' }, { status: 400 });
+          }
+          // The doctor must be free at this appointment's time.
+          const busy = await isTimeSlotTaken(existing.date, existing.time, id, doctor.slug);
+          if (busy) {
+            return NextResponse.json(
+              {
+                error: `${doctor.name} already has another appointment around ${existing.time} on ${existing.date}.`,
+              },
+              { status: 409 }
+            );
+          }
+          updates.doctorSlug = doctor.slug;
+          updates.doctorName = doctor.name;
+          assignmentMessage = `Appointment assigned to ${doctor.name}.`;
+        } else {
+          updates.doctorSlug = undefined;
+          updates.doctorName = undefined;
+          assignmentMessage = 'Doctor removed from this appointment.';
+        }
+      }
+    }
+
     if (status) updates.status = status;
     if (paymentStatus) {
       updates.paymentStatus = paymentStatus;
@@ -243,7 +326,11 @@ export async function PATCH(request: NextRequest) {
     }
 
     return NextResponse.json({
-      message: isReschedule ? 'Appointment rescheduled successfully.' : 'Appointment updated successfully.',
+      message: assignmentMessage
+        ? assignmentMessage
+        : isReschedule
+        ? 'Appointment rescheduled successfully.'
+        : 'Appointment updated successfully.',
       appointment: updated,
       calendarRescheduled,
     });
@@ -273,6 +360,14 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json(
         { error: 'Appointment ID is required.' },
         { status: 400 }
+      );
+    }
+
+    const target = await getAppointmentById(id);
+    if (target && !canManageAppointment(auth.payload, target)) {
+      return NextResponse.json(
+        { error: 'You can only remove your own appointments.' },
+        { status: 403 }
       );
     }
 
@@ -370,6 +465,14 @@ export async function POST(request: NextRequest) {
         : undefined;
     if (typeof requestedDoctorSlug === 'string' && requestedDoctorSlug.trim() && !chosenDoctor) {
       return NextResponse.json({ error: 'Unknown doctor selected.' }, { status: 400 });
+    }
+
+    const bookingScopedSlug = getScopedDoctorSlug(auth.payload);
+    if (bookingScopedSlug && chosenDoctor && chosenDoctor.slug !== bookingScopedSlug) {
+      return NextResponse.json(
+        { error: 'Doctors can only book appointments for themselves or leave them unassigned.' },
+        { status: 403 }
+      );
     }
 
     // Check if slot is already booked in MySQL DB

@@ -426,6 +426,49 @@ export default function AdminPage() {
     }
   };
 
+  // Assign / re-assign / self-assign the doctor of an appointment
+  const handleAssignDoctor = async (id: string, doctorSlug: string) => {
+    try {
+      const res = await adminFetch('/api/admin/appointments', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, assignDoctorSlug: doctorSlug }),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (res.ok && data.appointment) {
+        // Copy the doctor fields explicitly so "no doctor" (missing in JSON) also clears them
+        const doctorFields = {
+          doctorSlug: data.appointment.doctorSlug,
+          doctorName: data.appointment.doctorName,
+        };
+        setAppointments((prev) =>
+          prev.map((a) => (a.id === id ? { ...a, ...data.appointment, ...doctorFields } : a))
+        );
+        if (selectedPatient) {
+          setSelectedPatient((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  appointments: prev.appointments.map((a) =>
+                    a.id === id ? { ...a, ...data.appointment, ...doctorFields } : a
+                  ),
+                }
+              : null
+          );
+        }
+        toast.success(data.message || 'Doctor updated.', 'Doctor Assigned');
+      } else {
+        toast.error(data.error || 'Could not assign the doctor.', 'Assignment Failed');
+        loadAppointments();
+      }
+    } catch (err) {
+      console.error('Failed to assign doctor:', err);
+      toast.error('Network error while assigning the doctor.', 'Assignment Failed');
+      loadAppointments();
+    }
+  };
+
   // Update Payment Status (Instant Optimistic UI + Server Sync)
   const handleUpdatePayment = async (
     id: string,
@@ -647,6 +690,7 @@ export default function AdminPage() {
         {activeTab === 'appointments' && (isDoctor || isReceptionist) && (
           <AdminAppointmentsTab
             userRole={role}
+            userDoctorSlug={adminUser?.doctorSlug}
             appointments={appointments}
             stats={stats}
             overrides={overrides}
@@ -670,6 +714,7 @@ export default function AdminPage() {
             onReschedule={(appt) => setRescheduleAppointment(appt)}
             onPrescribe={(appt) => setPrescriptionAppointment(appt)}
             onUpdateStatus={handleUpdateStatus}
+            onAssignDoctor={handleAssignDoctor}
             onUpdatePayment={handleUpdatePayment}
             onDeleteAppointment={handleDeleteAppointment}
           />

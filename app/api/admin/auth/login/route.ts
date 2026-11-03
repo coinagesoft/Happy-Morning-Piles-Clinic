@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const matchedUser = findUserByCredentials(String(email), String(password));
+    const matchedUser = await findUserByCredentials(String(email), String(password));
     if (!matchedUser) {
       return NextResponse.json(
         { error: 'Invalid login credentials. Please check your email and password.' },

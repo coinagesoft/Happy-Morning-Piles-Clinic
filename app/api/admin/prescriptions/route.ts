@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { verifyAdminRequest } from '@/lib/adminAuth';
+import { verifyAdminRequest, canManageAppointment, canViewAppointment } from '@/lib/adminAuth';
 import { getAppointmentById } from '@/lib/storage';
 import {
   getPrescriptionByAppointment,
@@ -27,6 +27,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'appointmentId is required.' }, { status: 400 });
     }
     const appointment = await getAppointmentById(appointmentId);
+    if (appointment && !canViewAppointment(auth.payload, appointment)) {
+      return NextResponse.json({ error: 'This patient belongs to another doctor.' }, { status: 403 });
+    }
     const [prescription, suggestions, history] = await Promise.all([
       getPrescriptionByAppointment(appointmentId),
       getMedicineSuggestions(),
@@ -71,6 +74,12 @@ export async function POST(request: NextRequest) {
     const appointment = await getAppointmentById(appointmentId);
     if (!appointment) {
       return NextResponse.json({ error: 'Appointment not found.' }, { status: 404 });
+    }
+    if (!canManageAppointment(auth.payload, appointment)) {
+      return NextResponse.json(
+        { error: 'Only the assigned doctor can write this prescription. Assign the patient to yourself first.' },
+        { status: 403 }
+      );
     }
 
     const medicines = (Array.isArray(body.medicines) ? body.medicines : [])

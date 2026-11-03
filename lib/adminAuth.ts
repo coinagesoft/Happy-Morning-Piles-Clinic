@@ -1,54 +1,40 @@
 import crypto from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
+import { findStaffByCredentials } from './adminUsers';
 
 export type AdminRole = 'admin' | 'doctor' | 'receptionist' | 'pharmacist';
 
 export interface AdminUserConfig {
   id: string;
   email: string;
-  password: string;
   name: string;
   role: AdminRole;
   title: string;
+  /** Only for role "doctor": which doctor in lib/doctorsTeam.ts this login belongs to. */
+  doctorSlug?: string;
 }
 
-export const ADMIN_USERS: AdminUserConfig[] = [
-  {
-    id: 'user-doctor-1',
-    email: 'shivrajrbabar@gmail.com',
-    password: process.env.ADMIN_PASSWORD || 'Coinage@1790',
-    name: 'Dr. Mahesh Shete',
-    role: 'doctor',
-    title: 'Consulting Doctor (Full Clinical Access)',
-  },
-  {
-    id: 'user-doctor-2',
-    email: 'doctor@gmail.com',
-    password: 'doctor@123',
-    name: 'Dr. Mahesh Shete',
-    role: 'doctor',
-    title: 'Consulting Doctor (Full Clinical Access)',
-  },
-  {
-    id: 'user-receptionist-1',
-    email: 'receptionist@gmail.com',
-    password: 'recep@123',
-    name: 'Front Desk Receptionist',
-    role: 'receptionist',
-    title: 'Front Desk & Patient Care Coordinator',
-  },
-  {
-    id: 'user-pharmacist-1',
-    email: 'pharmacist@gmail.com',
-    password: 'pharm@123',
-    name: 'Clinic Pharmacist',
-    role: 'pharmacist',
-    title: 'Pharmacy & Remedy Dispensary Manager',
-  },
-];
+/**
+ * Staff logins live in the `admin_users` table (create them with scripts/create-admin-user.mjs).
+ * Optional break-glass admin: set ADMIN_EMAIL + ADMIN_PASSWORD (and ADMIN_NAME) in the environment.
+ */
+function envAdminUser(email: string, password: string): AdminUserConfig | null {
+  const envEmail = (process.env.ADMIN_EMAIL || '').trim().toLowerCase();
+  const envPassword = process.env.ADMIN_PASSWORD || '';
+  if (!envEmail || !envPassword || email !== envEmail) return null;
 
-export const ADMIN_EMAIL = ADMIN_USERS[0].email;
-export const ADMIN_PASSWORD = ADMIN_USERS[0].password;
+  const a = crypto.createHash('sha256').update(password).digest();
+  const b = crypto.createHash('sha256').update(envPassword).digest();
+  if (!crypto.timingSafeEqual(a, b)) return null;
+
+  return {
+    id: 'env-admin',
+    email: envEmail,
+    name: (process.env.ADMIN_NAME || '').trim() || 'Clinic Admin',
+    role: 'admin',
+    title: 'Administrator',
+  };
+}
 
 const JWT_SECRET =
   process.env.ADMIN_JWT_SECRET ||
@@ -66,6 +52,7 @@ export interface AdminTokenPayload {
   email: string;
   name: string;
   role: AdminRole;
+  doctorSlug?: string;
   type: 'access' | 'refresh';
   jti: string;
   iat: number;
@@ -156,46 +143,39 @@ export function verifyJwtToken(
   }
 }
 
-export function findUserByCredentials(email: string, password: string): AdminUserConfig | null {
+export async function findUserByCredentials(
+  email: string,
+  password: string
+): Promise<AdminUserConfig | null> {
   const cleanEmail = (email || '').trim().toLowerCase();
   const inputPass = String(password || '');
+  if (!cleanEmail || !inputPass || inputPass.length > 256) return null;
 
-  for (const user of ADMIN_USERS) {
-    if (user.email.toLowerCase() === cleanEmail) {
-      const inputPassBuf = Buffer.from(inputPass);
-      const expectedPassBuf = Buffer.from(user.password);
-      if (
-        inputPassBuf.length === expectedPassBuf.length &&
-        crypto.timingSafeEqual(inputPassBuf, expectedPassBuf)
-      ) {
-        return user;
-      }
-    }
-  }
+  const envUser = envAdminUser(cleanEmail, inputPass);
+  if (envUser) return envUser;
 
-  return null;
-}
-
-export function validateAdminCredentials(email: string, password: string): boolean {
-  return findUserByCredentials(email, password) !== null;
+  return findStaffByCredentials(cleanEmail, inputPass);
 }
 
 export function generateAdminTokenPair(
-  userConfig?: AdminUserConfig | { sub?: string; email: string; name: string; role: AdminRole }
+  userConfig:
+    | AdminUserConfig
+    | { sub?: string; email: string; name: string; role: AdminRole; doctorSlug?: string }
 ) {
-  const targetUser = userConfig || ADMIN_USERS[0];
   const sub =
-    'sub' in targetUser && targetUser.sub
-      ? targetUser.sub
-      : 'id' in targetUser && targetUser.id
-      ? targetUser.id
+    'sub' in userConfig && userConfig.sub
+      ? userConfig.sub
+      : 'id' in userConfig && userConfig.id
+      ? userConfig.id
       : 'user-admin-1';
 
+  const doctorSlug = userConfig.doctorSlug || undefined;
   const baseUser = {
     sub,
-    email: targetUser.email,
-    name: targetUser.name,
-    role: targetUser.role,
+    email: userConfig.email,
+    name: userConfig.name,
+    role: userConfig.role,
+    ...(doctorSlug ? { doctorSlug } : {}),
   };
 
   const accessToken = signJwtToken(
@@ -216,6 +196,7 @@ export function generateAdminTokenPair(
       email: baseUser.email,
       name: baseUser.name,
       role: baseUser.role,
+      doctorSlug,
     },
   };
 }
@@ -314,4 +295,40 @@ export function verifyAdminRequest(
   }
 
   return { authenticated: true, payload: verifiedPayload };
+}
+
+// ---------------------------------------------------------------------------
+// Doctor scoping helpers
+// ---------------------------------------------------------------------------
+
+/** The doctor slug when the caller is a doctor login tied to one doctor; otherwise undefined. */
+export function getScopedDoctorSlug(payload?: AdminTokenPayload): string | undefined {
+  return payload && payload.role === 'doctor' && payload.doctorSlug ? payload.doctorSlug : undefined;
+}
+
+/** Admin, receptionist (and an old-style doctor login with no doctor attached) may assign any doctor. */
+export function canAssignAnyDoctor(payload?: AdminTokenPayload): boolean {
+  if (!payload) return false;
+  if (payload.role === 'admin' || payload.role === 'receptionist') return true;
+  return payload.role === 'doctor' && !payload.doctorSlug;
+}
+
+/** Can the caller SEE this appointment? Doctors see their own patients plus unassigned ones. */
+export function canViewAppointment(
+  payload: AdminTokenPayload | undefined,
+  appt: { doctorSlug?: string | null }
+): boolean {
+  const scoped = getScopedDoctorSlug(payload);
+  if (!scoped) return true;
+  return !appt.doctorSlug || appt.doctorSlug === scoped;
+}
+
+/** Can the caller CHANGE this appointment (status, notes, prescription, delete)? */
+export function canManageAppointment(
+  payload: AdminTokenPayload | undefined,
+  appt: { doctorSlug?: string | null }
+): boolean {
+  const scoped = getScopedDoctorSlug(payload);
+  if (!scoped) return true;
+  return appt.doctorSlug === scoped;
 }

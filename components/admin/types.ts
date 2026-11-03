@@ -14,6 +14,8 @@ export interface AdminUser {
   name: string;
   role: AdminRole | string;
   title?: string;
+  /** Set for doctor logins: the doctor (slug from lib/doctorsTeam.ts) this login belongs to. */
+  doctorSlug?: string;
 }
 
 export interface AdminStats {

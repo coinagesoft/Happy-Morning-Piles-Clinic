@@ -24,6 +24,8 @@ import DoctorBadge from '@/components/admin/DoctorBadge';
 
 interface AdminAppointmentsTabProps {
   userRole?: string;
+  /** Set for a doctor login: the doctor this login belongs to */
+  userDoctorSlug?: string;
   appointments: Appointment[];
   stats: AdminStats;
   overrides: DoctorOverride[];
@@ -52,10 +54,13 @@ interface AdminAppointmentsTabProps {
     paymentStatus: 'paid' | 'pending' | 'refunded'
   ) => void;
   onDeleteAppointment: (id: string, patientName: string) => void;
+  /** Assign a doctor to an appointment ('' = remove the doctor) */
+  onAssignDoctor: (id: string, doctorSlug: string) => void;
 }
 
 export default function AdminAppointmentsTab({
   userRole = 'doctor',
+  userDoctorSlug,
   appointments,
   stats,
   overrides,
@@ -76,9 +81,15 @@ export default function AdminAppointmentsTab({
   onReschedule,
   onPrescribe,
   onUpdateStatus,
+  onAssignDoctor,
   onUpdatePayment,
   onDeleteAppointment,
 }: AdminAppointmentsTabProps) {
+  // Admin / receptionist (and an old-style doctor login) can pick any doctor.
+  // A doctor login can only take unassigned patients for themselves.
+  const canAssignAny =
+    userRole === 'admin' || userRole === 'receptionist' || (userRole === 'doctor' && !userDoctorSlug);
+  const isOwnAppointment = (a: Appointment) => !userDoctorSlug || a.doctorSlug === userDoctorSlug;
   const [sortBy, setSortBy] = React.useState<'latest' | 'oldest' | 'name' | 'amount'>('latest');
   // 'all' | 'unassigned' (older bookings with no doctor) | a doctor slug
   const [doctorFilter, setDoctorFilter] = React.useState('all');
@@ -369,13 +380,23 @@ export default function AdminAppointmentsTab({
               onChange={(e) => setDoctorFilter(e.target.value)}
               aria-label="Filter by doctor"
             >
-              <option value="all">All Doctors</option>
-              {BOOKABLE_DOCTORS.map((d) => (
-                <option key={d.slug} value={d.slug}>
-                  {d.name}
-                </option>
-              ))}
-              <option value="unassigned">No doctor (older bookings)</option>
+              {userDoctorSlug ? (
+                <>
+                  <option value="all">All (mine + unassigned)</option>
+                  <option value={userDoctorSlug}>My patients</option>
+                  <option value="unassigned">Unassigned (available to take)</option>
+                </>
+              ) : (
+                <>
+                  <option value="all">All Doctors</option>
+                  {BOOKABLE_DOCTORS.map((d) => (
+                    <option key={d.slug} value={d.slug}>
+                      {d.name}
+                    </option>
+                  ))}
+                  <option value="unassigned">Not assigned to a doctor</option>
+                </>
+              )}
             </select>
           </div>
 
@@ -535,7 +556,56 @@ export default function AdminAppointmentsTab({
                         </span>
                       </td>
                       <td>
-                        <DoctorBadge slug={appt.doctorSlug} name={appt.doctorName} />
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-start' }}>
+                          <DoctorBadge slug={appt.doctorSlug} name={appt.doctorName} />
+
+                          {canAssignAny ? (
+                            <select
+                              value={appt.doctorSlug || ''}
+                              onChange={(e) => onAssignDoctor(appt.id, e.target.value)}
+                              aria-label={`Assign doctor for ${appt.fullName}`}
+                              title="Assign or change the doctor for this appointment"
+                              style={{
+                                fontSize: 12,
+                                padding: '4px 6px',
+                                maxWidth: 180,
+                                borderRadius: 8,
+                                border: '1px solid #cbd5e1',
+                                background: '#fff',
+                                cursor: 'pointer',
+                              }}
+                            >
+                              <option value="">Not assigned</option>
+                              {appt.doctorSlug &&
+                                !BOOKABLE_DOCTORS.some((d) => d.slug === appt.doctorSlug) && (
+                                  <option value={appt.doctorSlug}>{appt.doctorName || appt.doctorSlug}</option>
+                                )}
+                              {BOOKABLE_DOCTORS.map((d) => (
+                                <option key={d.slug} value={d.slug}>
+                                  {d.name}
+                                </option>
+                              ))}
+                            </select>
+                          ) : userDoctorSlug && !appt.doctorSlug && appt.status !== 'cancelled' ? (
+                            <button
+                              type="button"
+                              onClick={() => onAssignDoctor(appt.id, userDoctorSlug)}
+                              title="Take this patient as your own"
+                              style={{
+                                fontSize: 12,
+                                fontWeight: 700,
+                                padding: '4px 10px',
+                                borderRadius: 999,
+                                border: '1px solid #565ACF',
+                                background: '#EEF0FF',
+                                color: '#565ACF',
+                                cursor: 'pointer',
+                              }}
+                            >
+                              Assign to me
+                            </button>
+                          ) : null}
+                        </div>
                       </td>
                       <td>
                         <div className="cell-patient">
@@ -584,6 +654,8 @@ export default function AdminAppointmentsTab({
                               e.target.value as 'confirmed' | 'completed' | 'cancelled'
                             )
                           }
+                          disabled={!isOwnAppointment(appt)}
+                          title={!isOwnAppointment(appt) ? 'Assign this patient to yourself first' : undefined}
                           className={`status-dropdown status-${appt.status || 'confirmed'}`}
                         >
                           <option value="confirmed">Confirmed</option>
@@ -624,7 +696,7 @@ export default function AdminAppointmentsTab({
                             <span>Notes</span>
                           </button>
 
-                          {userRole !== 'receptionist' && (
+                          {userRole !== 'receptionist' && isOwnAppointment(appt) && (
                             <button
                               type="button"
                               className="action-pill action-pill-rx"

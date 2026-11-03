@@ -27,6 +27,7 @@ export async function GET(request: NextRequest) {
           email: verifiedAccess.email,
           name: verifiedAccess.name,
           role: verifiedAccess.role,
+          doctorSlug: verifiedAccess.doctorSlug,
         },
       });
     }
